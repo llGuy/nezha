@@ -16,8 +16,8 @@ FOREACH(subdir ${SUBDIRS})
   ADD_LIBRARY(${subdir} SHARED
     ${sources})
   TARGET_COMPILE_DEFINITIONS(${subdir} PUBLIC 
-    BACKEND_ROOT=${CMAKE_SOURCE_DIR}/backends/${subdir}
-    PROJECT_ROOT=${CMAKE_SOURCE_DIR})
+    BACKEND_ROOT="${CMAKE_SOURCE_DIR}/backends/${subdir}"
+    NEZHA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
   TARGET_LINK_LIBRARIES(${subdir} PUBLIC 
     nezha_core)
 ENDFOREACH()

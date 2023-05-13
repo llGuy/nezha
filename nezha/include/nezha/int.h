@@ -2,6 +2,7 @@
 #define _INT_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 typedef uint8_t b8;
 typedef uint8_t byte;

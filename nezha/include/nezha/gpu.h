@@ -1,6 +1,13 @@
-#ifndef _GPU_H_
-#define _GPU_H_
+#ifndef _NZ_GPU_H_
+#define _NZ_GPU_H_
 
-void nz_greet();
+#include <nezha/int.h>
+
+struct nz_gpu_cfg
+{
+  struct nz_surface *surface;
+};
+
+struct nz_gpu *nz_gpu_create(struct nz_gpu_cfg *);
 
 #endif

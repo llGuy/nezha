@@ -1,0 +1,10 @@
+              NEZHA: high performance GPU computation graph 
+                     framework for ML and graphics workloads
+
+Dependencies:
+- Vulkan
+
+Directory structure:
+- nezha/ -> GPU computation graph framework (static library)
+- frontends/ -> Each subdirectory builds to an exec (for instance, editor)
+- backends/ -> Builds to dynamic libraries

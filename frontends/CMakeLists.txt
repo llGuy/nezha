@@ -15,7 +15,7 @@ FOREACH(subdir ${SUBDIRS})
   FILE(GLOB_RECURSE sources ${subdir}/*.c ${subdir}/*.h)
   ADD_EXECUTABLE(${subdir} ${sources})
   TARGET_COMPILE_DEFINITIONS(${subdir} PUBLIC 
-    FRONTEND_ROOT=${CMAKE_SOURCE_DIR}/frontends/${subdir}
-    PROJECT_ROOT=${CMAKE_SOURCE_DIR})
+    FRONTEND_ROOT="${CMAKE_SOURCE_DIR}/frontends/${subdir}"
+    NEZHA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
   TARGET_LINK_LIBRARIES(${subdir} PUBLIC nezha_core)
 ENDFOREACH()
