@@ -4,7 +4,7 @@
 #include <nezha/util.h>
 #include <nezha/heap_vector.h>
 
-#define HEAP_VECTOR_DEF_START_SIZE (1<<12) // 4KB
+#define HEAP_VECTOR_DEF_START_SIZE (32)
 
 struct nz_heap_vector
 {
@@ -25,7 +25,7 @@ struct nz_heap_vector *nz_heap_vector_init(size_t start_size,
     start_size = HEAP_VECTOR_DEF_START_SIZE;
 
   struct nz_heap_vector *v = (struct nz_heap_vector *)
-    malloc(sizeof(struct nz_heap_vector) + start_size);
+    malloc(sizeof(struct nz_heap_vector) + start_size*block_size);
 
   v->cap = start_size;
   v->size = 0;
@@ -41,7 +41,7 @@ void nz_heap_vector_destroy(struct nz_heap_vector *v)
   free(v);
 }
 
-int nz_heap_vector_push(struct nz_heap_vector *v)
+void *nz_heap_vector_push(struct nz_heap_vector *v)
 {
   if (v->size >= v->cap)
   {
@@ -50,7 +50,7 @@ int nz_heap_vector_push(struct nz_heap_vector *v)
                    v->block_size * v->cap);
   }
 
-  return v->size++;
+  return heap_vector_start(v) + (v->size++) * v->block_size;
 }
 
 void nz_heap_vector_guarantee(struct nz_heap_vector *v, int i)
@@ -77,4 +77,9 @@ void *nz_heap_vector_get(struct nz_heap_vector *v, int i)
 size_t nz_heap_size(struct nz_heap_vector *v)
 {
   return v->size;
+}
+
+void nz_heap_vector_clear(struct nz_heap_vector *v)
+{
+  v->size = 0;
 }

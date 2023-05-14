@@ -26,7 +26,6 @@ struct nz_graph;
  * computation stages. */
 nz_graph_hdl_t nz_graph_get_res_id(struct nz_graph *);
 nz_graph_hdl_t nz_graph_get_stg_id(struct nz_graph *);
-nz_graph_hdl_t nz_graph_get_job_id(struct nz_graph *);
 
 
 /* Create a computation graph. This allows for recording and synchronization 
@@ -42,7 +41,7 @@ struct nz_graph *nz_graph_init(struct nz_gpu *);
 
 /* Start a computation graph. Translates to a commands will get recorded 
  * into a job (which will hold a reference to a graph). */
-struct nz_job *nz_graph_begin_job(struct nz_graph *, nz_graph_hdl_t);
+void nz_graph_begin_job(struct nz_graph *);
 
 
 /* Command buffer generator is used to have finer grain control over how
@@ -65,7 +64,7 @@ struct nz_cmdbuf_generator
 /* Once all commands have been submitted to the NZ_JOB, Creates the actual
  * VkCommandBuffer which can then be submitted with inter-VkCommandBuffer
  * synchronization. */
-void nz_graph_end_job(struct nz_job *, struct nz_cmdbuf_generator *);
+struct nz_job *nz_graph_end_job(struct nz_cmdbuf_generator *);
 
 
 /* Submits a graph job to be computed on the GPU. Takes in a list of
@@ -76,8 +75,8 @@ void nz_graph_submit(struct nz_job **dependencies, struct nz_job *job);
 struct nz_gpu_buffer *nz_graph_register_buffer(struct nz_graph *, nz_graph_hdl_t);
 
 /* Adding stages. */
-struct nz_render_pass *nz_graph_add_render_pass(struct nz_graph *, nz_graph_hdl_t);
-struct nz_compute_pass *nz_graph_add_compute_pass(struct nz_graph *, nz_graph_hdl_t);
+struct nz_pass_graphics *nz_graph_add_pass_graphics(struct nz_graph *, nz_graph_hdl_t);
+struct nz_pass_compute *nz_graph_add_pass_compute(struct nz_graph *, nz_graph_hdl_t);
 void nz_graph_add_buffer_update(struct nz_graph *, int id, void *, 
                                 size_t off, size_t size);
 void nz_graph_add_image_blit(struct nz_graph *, nz_graph_hdl_t dst, 

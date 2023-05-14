@@ -24,8 +24,6 @@ struct graph_image
   VkAccessFlags current_access;
   VkPipelineStageFlags last_used;
   VkImageUsageFlags usage;
-  struct graph_res_usage_node head_node;
-  struct graph_res_usage_node tail_node;
 
   /* Descriptor set cache. */
   VkDescriptorSet sets[GRAPH_BINDING_TYPE_MAX_IMAGE];

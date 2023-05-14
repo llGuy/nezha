@@ -5,6 +5,9 @@ ADD_LIBRARY(nezha_core SHARED
   graph.c
   graph_job.c
   graph_binding.c
+  graph_transfer.c
+  graph_compute.c
+  graph_pass.c
   util.c
   surface.c
   load_backend.c)

@@ -3,6 +3,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include "graph.h"
+
 enum graph_binding_type
 {
   /* Image binding types. */
@@ -31,6 +33,12 @@ struct graph_binding
 
   /* The binding type. */
   enum graph_binding_type type;
+
+  /* This is the ID of the USED_RESOURCE which corresponds to an index into the
+   * USED_RESOURCES array in the NZ_JOB structure. */
+  int id;
+
+  struct graph_res_usage_node next;
 
   /* Other data that may be needed (TODO: For render passes, clear color...) */
 };
