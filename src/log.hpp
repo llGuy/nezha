@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+namespace nz
+{
+
 template <typename ...FormatArgs>
 void log_error(const char *str, FormatArgs &&...params) 
 {
@@ -32,4 +35,6 @@ inline void panic_and_exit()
 {
   printf("panic - stopping session\n");
   exit(-1);
+}
+
 }

@@ -14,8 +14,8 @@ file::file(const std::string &path, u32 file_type_bits)
   }
   else 
   {
-    log_error("Failed to find file", path_.c_str());
-    panic_and_exit();
+    nz::log_error("Failed to find file", path_.c_str());
+    nz::panic_and_exit();
   }
 }
 

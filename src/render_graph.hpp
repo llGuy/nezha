@@ -1,5 +1,14 @@
 #pragma once
 
+
+/* TODO:
+ * - Recycle semaphores/fences/commandbuffers
+ * - Make sure that we can add multiple instances of a compute shader. 
+ * - Job synchronization
+ * - More async stuff */
+
+
+#include <array>
 #include <vector>
 #include <assert.h>
 #include "string.hpp"
@@ -185,8 +194,9 @@ struct binding
 
 struct buffer_info 
 {
-  u32 size;
-  binding::type type;
+  u32 size = 0;
+  binding::type type = binding::type::max_buffer;
+  bool host_visible = false;
 };
 
 struct image_info 
@@ -432,6 +442,27 @@ private:
 
 
 /************************* Resource *******************************/
+class memory_mapping
+{
+public:
+  ~memory_mapping();
+
+  void *data();
+  size_t size();
+
+private:
+  memory_mapping(VkDeviceMemory memory, size_t size);
+
+private:
+  VkDeviceMemory memory_;
+  void *data_;
+  size_t size_;
+
+  friend class render_graph;
+  friend class gpu_buffer;
+  friend class gpu_image;
+};
+
 class gpu_buffer 
 { // TODO
 public:
@@ -443,6 +474,8 @@ public:
 
   // Actually allocates the memory and creates the resource
   gpu_buffer &alloc();
+
+  memory_mapping map();
 
   inline VkBuffer buffer() 
   {
@@ -483,6 +516,8 @@ private:
 
   VkAccessFlags current_access_;
   VkPipelineStageFlags last_used_;
+
+  bool host_visible_;
 
   friend class render_graph;
   friend class compute_pass;
@@ -642,7 +677,7 @@ class transfer_operation
 public:
   enum type 
   {
-    buffer_update, buffer_copy, image_copy, image_blit, none
+    buffer_update, buffer_copy, buffer_copy_to_cpu, image_copy, image_blit, none
   };
 
   transfer_operation();
@@ -650,6 +685,9 @@ public:
 
   void init_as_buffer_update(
     graph_resource_ref buf_ref, void *data, uint32_t offset, uint32_t size);
+
+  void init_as_buffer_copy_to_cpu(
+    graph_resource_ref dst, graph_resource_ref src);
 
   // For now, assume we blit the entire thing
   void init_as_image_blit(graph_resource_ref src, graph_resource_ref dst);
@@ -678,6 +716,11 @@ private:
       uint32_t offset;
       uint32_t size;
     } buffer_update_state_;
+
+    struct
+    {
+      graph_resource_ref dst, src;
+    } buffer_copy_to_cpu_;
 
     // TODO:
     struct 
@@ -769,6 +812,59 @@ private:
   VkCommandBuffer cmdbuf_;
 };
 
+class job
+{
+public:
+  job(VkCommandBuffer cmdbuf, VkPipelineStageFlags end_stage, render_graph *builder);
+
+private:
+  void submit_();
+
+private:
+  /* All the recorded commands go in here! (as a result of the end() function
+   * in render_graph). */
+  VkCommandBuffer cmdbuf_;
+
+  /* This is the semaphore that will get signaled when this command buffer
+   * is finished. */
+  VkSemaphore finished_semaphore_;
+
+  VkPipelineStageFlags end_stage_;
+
+  /* Use here for recycling command buffers. */
+  render_graph *builder_;
+
+  friend class render_graph;
+};
+
+class pending_workload
+{
+public:
+  void wait();
+
+private:
+  VkFence fence_;
+
+  friend class render_graph;
+};
+
+class submission
+{
+public:
+  void wait();
+
+private:
+  VkFence fence_;
+
+  // All the semaphores that will get freed up
+  std::vector<VkSemaphore> semaphores_;
+
+  // All the command buffers that will get freed up
+  std::vector<VkCommandBuffer> cmdbufs_;
+
+  friend class render_graph;
+};
+
 class render_graph 
 {
 public:
@@ -791,12 +887,15 @@ public:
   void register_swapchain(const graph_swapchain_info &swp);
   // Usage of this buffer
   gpu_buffer &register_buffer(const uid_string &);
+  gpu_buffer &get_buffer(const uid_string &);
 
   // This will schedule the passes and potentially allocate and create them
   render_pass &add_render_pass(const uid_string &);
   compute_pass &add_compute_pass(const uid_string &);
   void add_buffer_update(
     const uid_string &, void *data, u32 offset = 0, u32 size = 0);
+  void add_buffer_copy_to_cpu(
+    const uid_string &dst, const uid_string &src);
   void add_image_blit(const uid_string &src, const uid_string &dst);
 
   // Start recording a set of passes / commands
@@ -806,7 +905,22 @@ public:
   // command buffer on the fly If there is a present command, will use the 
   // present_cmdbuf_generator If not, will use single_cmdbuf_generator,
   // But can specify custom generator too
-  void end(cmdbuf_generator *generator = nullptr);
+  job end(cmdbuf_generator *generator = nullptr);
+
+  template <typename ...T>
+  pending_workload submit(const job &job, T &&...dependencies)
+  {
+    class job deps[] = { std::forward<T>(dependencies)... };
+    return submit(&job, 1, deps, sizeof...(T));
+  }
+
+  pending_workload submit(const job &job)
+  {
+    return submit(&job, 1, nullptr, 0);
+  }
+
+  pending_workload submit(const job *jobs, int count,
+    const job *dependencies, int dependency_count);
 
   // Make sure that this image is what gets presented to the screen
   void present(const uid_string &);
@@ -814,6 +928,12 @@ public:
   graph_resource_tracker get_resource_tracker();
 
 private:
+  void recycle_submissions_();
+  submission *get_successful_submission_();
+  VkFence get_fence_();
+  VkSemaphore get_semaphore_();
+  VkCommandBuffer get_command_buffer_();
+
   void prepare_pass_graph_stage_(graph_stage_ref ref);
   void prepare_transfer_graph_stage_(graph_stage_ref ref);
 
@@ -899,6 +1019,11 @@ private:
 
   std::vector<transfer_operation> transfers_;
 
+  std::vector<VkCommandBuffer> free_cmdbufs_;
+  std::vector<VkSemaphore> free_semaphores_;
+  std::vector<VkFence> free_fences_;
+  std::vector<submission> submissions_;
+
   struct present_info 
   {
     graph_resource_ref to_present;
@@ -920,6 +1045,7 @@ private:
   friend class gpu_buffer;
   friend class transfer_operation;
   friend class graph_resource_tracker;
+  friend class job;
 };
 
 std::string make_shader_src_path(const char *path, VkShaderStageFlags stage);

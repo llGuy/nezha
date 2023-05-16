@@ -868,7 +868,7 @@ gpu_image &gpu_image::alloc()
 }
 
 gpu_buffer::gpu_buffer(render_graph *graph) 
-  : builder_(graph), size_(0),
+  : builder_(graph), size_(0), host_visible_(false),
   buffer_(VK_NULL_HANDLE),
   usage_(VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT),
   descriptor_sets_{},
@@ -926,7 +926,10 @@ gpu_buffer &gpu_buffer::configure(const buffer_info &info)
   default: break;
   }
 
-  size_ = info.size;
+  if (info.size)
+    size_ = info.size;
+
+  host_visible_ |= info.host_visible;
 
   return *this;
 }
@@ -945,10 +948,25 @@ gpu_buffer &gpu_buffer::alloc()
   vkCreateBuffer(gctx->device, &buffer_create_info, nullptr, &buffer_);
 
   u32 allocated_size = 0;
-  buffer_memory_ = allocate_buffer_memory(
-    buffer_, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  VkMemoryPropertyFlags mem_prop = host_visible_ ? 
+    (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) : (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  buffer_memory_ = allocate_buffer_memory(buffer_, mem_prop);
 
   return *this;
+}
+
+memory_mapping gpu_buffer::map()
+{
+  if (buffer_ == VK_NULL_HANDLE)
+  {
+    // Set host visible to true and create the buffer
+    host_visible_ = true;
+    action_ = action_flag::to_create;
+    apply_action_();
+  }
+
+  return memory_mapping(buffer_memory_, size_);
 }
 
 void gpu_buffer::add_usage_node_(graph_stage_ref stg, uint32_t binding_idx) 
@@ -1081,6 +1099,30 @@ void transfer_operation::init_as_buffer_update(
   {
     buffer_update_state_.size = buf.size_;
   }
+}
+
+void transfer_operation::init_as_buffer_copy_to_cpu(
+  graph_resource_ref dst, graph_resource_ref src)
+{
+  type_ = type::buffer_copy_to_cpu;
+  binding b0 = { 0, binding::type::buffer_transfer_dst, dst };
+  binding b1 = { 1, binding::type::buffer_transfer_dst, src };
+
+  bindings_ = bump_mem_alloc<binding>(2);
+  bindings_[0] = b0;
+  bindings_[1] = b1;
+
+  buffer_copy_to_cpu_.dst = dst;
+  buffer_copy_to_cpu_.dst = src;
+
+  gpu_buffer &buf0 = builder_->get_buffer_(dst);
+  buf0.add_usage_node_(stage_ref_, 0);
+
+  // Make sure the dst buffer is host visible
+  buf0.configure({.host_visible = true});
+
+  gpu_buffer &buf1 = builder_->get_buffer_(src);
+  buf1.add_usage_node_(stage_ref_, 1);
 }
 
 void transfer_operation::init_as_image_blit(
@@ -1240,6 +1282,19 @@ void render_graph::add_buffer_update(
 
   transfer_operation &transfer = transfers_[transfers_.size() - 1];
   transfer.init_as_buffer_update(uid.id, data, offset, size);
+
+  recorded_stages_.push_back(ref);
+}
+
+void render_graph::add_buffer_copy_to_cpu(
+  const uid_string &dst, const uid_string &src)
+{
+  graph_stage_ref ref (graph_stage_ref::type::transfer, transfers_.size());
+
+  transfers_.push_back(transfer_operation(ref, this));
+
+  transfer_operation &transfer = transfers_[transfers_.size() - 1];
+  transfer.init_as_buffer_copy_to_cpu(dst.id, src.id);
 
   recorded_stages_.push_back(ref);
 }
@@ -1408,9 +1463,38 @@ void render_graph::prepare_transfer_graph_stage_(graph_stage_ref ref)
     auto &res = get_resource_(bind.rref);
     res.get_buffer().update_action_(bind);
 
-    if (!res.was_used_) {
+    if (!res.was_used_) 
+    {
       res.was_used_ = true;
       used_resources_.push_back(bind.rref);
+    }
+  } break;
+
+  case transfer_operation::type::buffer_copy_to_cpu: {
+    { // Dst
+      auto &bind = op.get_binding(0);
+
+      auto &res = get_resource_(bind.rref);
+      res.get_buffer().update_action_(bind);
+
+      if (!res.was_used_) 
+      {
+        res.was_used_ = true;
+        used_resources_.push_back(bind.rref);
+      }
+    }
+
+    { // Src
+      auto &bind = op.get_binding(1);
+
+      auto &res = get_resource_(bind.rref);
+      res.get_buffer().update_action_(bind);
+
+      if (!res.was_used_) 
+      {
+        res.was_used_ = true;
+        used_resources_.push_back(bind.rref);
+      }
     }
   } break;
 
@@ -1422,7 +1506,8 @@ void render_graph::prepare_transfer_graph_stage_(graph_stage_ref ref)
       auto &res = get_resource_(bind.rref);
       res.get_image().update_action_(bind);
 
-      if (!res.was_used_) {
+      if (!res.was_used_) 
+      {
         res.was_used_ = true;
         used_resources_.push_back(bind.rref);
       }
@@ -1434,7 +1519,8 @@ void render_graph::prepare_transfer_graph_stage_(graph_stage_ref ref)
       auto &res = get_resource_(bind.rref);
       res.get_image().update_action_(bind);
 
-      if (!res.was_used_) {
+      if (!res.was_used_) 
+      {
         res.was_used_ = true;
         used_resources_.push_back(bind.rref);
       }
@@ -1546,6 +1632,49 @@ void render_graph::execute_transfer_graph_stage_(
     buf.current_access_ = VK_ACCESS_TRANSFER_WRITE_BIT;
   } break;
 
+  case transfer_operation::type::buffer_copy_to_cpu:
+  {
+    binding &dst_binding = op.bindings_[0];
+    binding &src_binding = op.bindings_[1];
+
+    gpu_buffer &dst = get_buffer_(dst_binding.rref);
+    gpu_buffer &src = get_buffer_(src_binding.rref);
+
+    VkBufferMemoryBarrier dst_barrier =
+    {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+      .buffer = dst.buffer_,
+      .srcAccessMask = dst.current_access_,
+      .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+      .offset = 0,
+      .size = dst.size_
+    };
+
+    auto src_barrier = dst_barrier;
+    src_barrier.buffer = src.buffer_;
+    src_barrier.srcAccessMask = src.current_access_;
+    src_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+    vkCmdPipelineBarrier(info.cmdbuf, dst.last_used_,
+      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &dst_barrier, 0, nullptr);
+    vkCmdPipelineBarrier(info.cmdbuf, src.last_used_,
+      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &src_barrier, 0, nullptr);
+
+    VkBufferCopy region = {
+      .size = dst.size_,
+      .srcOffset = 0,
+      .dstOffset = 0
+    };
+
+    vkCmdCopyBuffer(info.cmdbuf, src.buffer_, dst.buffer_, 1, &region);
+
+    dst.last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dst.current_access_ = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    src.last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    src.current_access_ = VK_ACCESS_TRANSFER_READ_BIT;
+  } break;
+
   case transfer_operation::type::image_blit: 
   {
     gpu_image &src = get_image_(op.bindings_[0].rref);
@@ -1617,8 +1746,9 @@ void render_graph::execute_transfer_graph_stage_(
   }
 }
 
-void render_graph::end(cmdbuf_generator *generator) 
+job render_graph::end(cmdbuf_generator *generator) 
 {
+#if 0
   // Determine which generator to use
   if (!generator) 
   {
@@ -1631,8 +1761,18 @@ void render_graph::end(cmdbuf_generator *generator)
   // Generate the command buffer
   cmdbuf_generator::cmdbuf_info info = generator->get_command_buffer();
   current_cmdbuf_ = info.cmdbuf;
+#endif
+  cmdbuf_generator::cmdbuf_info info;
+  info.cmdbuf = current_cmdbuf_ = get_command_buffer_();
 
-  swapchain_img_idx_ = info.swapchain_idx;
+  VkCommandBufferBeginInfo begin_info = 
+  {
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
+  };
+
+  vkBeginCommandBuffer(current_cmdbuf_, &begin_info);
+
+  // swapchain_img_idx_ = info.swapchain_idx;
 
   // First traverse through all stages in order to figure out resources to use
   for (auto stg : recorded_stages_) 
@@ -1674,7 +1814,163 @@ void render_graph::end(cmdbuf_generator *generator)
       execute_transfer_graph_stage_(stg, info);
   }
 
-  generator->submit_command_buffer(info, last_stage);
+  vkEndCommandBuffer(current_cmdbuf_);
+  // generator->submit_command_buffer(info, last_stage);
+
+  return job(info.cmdbuf, last_stage, this);
+}
+
+submission *render_graph::get_successful_submission_()
+{
+  for (auto &sub : submissions_)
+  {
+    VkResult res = vkGetFenceStatus(gctx->device, sub.fence_);
+    if (res == VK_SUCCESS)
+      return &sub;
+  }
+
+  return nullptr;
+}
+
+void render_graph::recycle_submissions_()
+{
+  auto *sub = get_successful_submission_();
+
+  if (sub)
+  {
+    // Recycle all the stuff
+    free_fences_.push_back(sub->fence_);
+    free_semaphores_.insert(free_semaphores_.end(), sub->semaphores_.begin(), sub->semaphores_.end());
+    free_cmdbufs_.insert(free_cmdbufs_.end(), sub->cmdbufs_.begin(), sub->cmdbufs_.end());
+  }
+
+  if (submissions_.size() > 1)
+  {
+    int index = sub - submissions_.data();
+    std::iter_swap(submissions_.begin() + index, submissions_.end() - 1);
+    submissions_.pop_back();
+  }
+  else
+  {
+    submissions_.clear();
+  }
+}
+
+VkFence render_graph::get_fence_()
+{
+  recycle_submissions_();
+
+  if (free_fences_.size())
+  {
+    VkFence ret = free_fences_.back();
+    free_fences_.pop_back();
+    return ret;
+  }
+  else
+  {
+    VkFence fence;
+    VkFenceCreateInfo fence_info = {};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Set to signaled because we reset the fence when submitting commands
+    vkCreateFence(gctx->device, &fence_info, nullptr, &fence);
+    return fence;
+  }
+}
+
+VkSemaphore render_graph::get_semaphore_()
+{
+  recycle_submissions_();
+
+  if (free_semaphores_.size())
+  {
+    VkSemaphore ret = free_semaphores_.back();
+    free_semaphores_.pop_back();
+    return ret;
+  }
+  else
+  {
+    VkSemaphore semaphore;
+    VkSemaphoreCreateInfo semaphore_info = {};
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    vkCreateSemaphore(gctx->device, &semaphore_info, nullptr, &semaphore);
+    return semaphore;
+  }
+}
+
+VkCommandBuffer render_graph::get_command_buffer_()
+{
+  recycle_submissions_();
+
+  if (free_cmdbufs_.size())
+  {
+    VkCommandBuffer ret = free_cmdbufs_.back();
+    free_cmdbufs_.pop_back();
+    return ret;
+  }
+  else
+  {
+    VkCommandBuffer command_buffer;
+    VkCommandBufferAllocateInfo command_buffer_info = {};
+    command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_info.commandBufferCount = 1;
+    command_buffer_info.commandPool = gctx->command_pool;
+    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    vkAllocateCommandBuffers(
+      gctx->device, &command_buffer_info, &command_buffer);
+    return command_buffer;
+  }
+}
+
+pending_workload render_graph::submit(const job *jobs, int count,
+  const job *dependencies, int dependency_count)
+{
+  VkCommandBuffer *jobs_raw = stack_alloc(VkCommandBuffer, count);
+  VkSemaphore *signal_raw = stack_alloc(VkSemaphore, count);
+  for (int i = 0; i < count; ++i)
+    (jobs_raw[i] = jobs[i].cmdbuf_), (signal_raw[i] = jobs[i].finished_semaphore_);
+
+  VkSemaphore *wait_raw = stack_alloc(VkSemaphore, dependency_count);
+  VkPipelineStageFlags *end_stages = stack_alloc(VkPipelineStageFlags, dependency_count);
+
+  for (int i = 0; i < dependency_count; ++i)
+    (wait_raw[i] = dependencies[i].finished_semaphore_), (end_stages[i] = dependencies[i].end_stage_);
+
+  VkSubmitInfo info = {
+    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    .commandBufferCount = (uint32_t)count,
+    .pCommandBuffers = jobs_raw,
+    .waitSemaphoreCount = (uint32_t)dependency_count,
+    .pWaitSemaphores = wait_raw,
+    .pWaitDstStageMask = end_stages,
+    .signalSemaphoreCount = (uint32_t)count,
+    .pSignalSemaphores = signal_raw
+  };
+
+  VkFence fence = get_fence_();
+  vkResetFences(gctx->device, 1, &fence);
+
+  vkQueueSubmit(gctx->graphics_queue, 1, &info, fence);
+
+  submission workload;
+  workload.fence_ = fence;
+  workload.semaphores_.resize(count);
+  workload.cmdbufs_.resize(count);
+  for (int i = 0; i < count; ++i)
+  {
+    workload.semaphores_[i] = signal_raw[i];
+    workload.cmdbufs_[i] = jobs_raw[i];
+  }
+
+  submissions_.push_back(std::move(workload));
+
+  pending_workload ret;
+  ret.fence_ = fence;
+  return ret;
+}
+
+gpu_buffer &render_graph::get_buffer(const uid_string &uid)
+{
+  return get_buffer_(uid.id);
 }
 
 void render_graph::present(const uid_string &res_uid) 
@@ -1703,6 +1999,7 @@ fences_(frames_in_flight),
 command_buffers_(gctx->images.size()),
 current_frame_(0) 
 {
+#if 0
   VkSemaphoreCreateInfo semaphore_info = {};
   semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -1727,6 +2024,7 @@ current_frame_(0)
   command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   vkAllocateCommandBuffers(
     gctx->device, &command_buffer_info, command_buffers_.data());
+#endif
 }
 
 cmdbuf_generator::cmdbuf_info present_cmdbuf_generator::get_command_buffer() 
@@ -1814,6 +2112,38 @@ void single_cmdbuf_generator::submit_command_buffer(
   };
 
   vkQueueSubmit(gctx->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+}
+
+job::job(VkCommandBuffer cmdbuf, VkPipelineStageFlags end_stage, render_graph *builder)
+: builder_(builder), cmdbuf_(cmdbuf), end_stage_(end_stage)
+{
+  finished_semaphore_ = builder_->get_semaphore_();
+}
+
+void pending_workload::wait()
+{
+  vkWaitForFences(gctx->device, 1, &fence_, VK_TRUE, UINT64_MAX);
+}
+
+memory_mapping::memory_mapping(VkDeviceMemory memory, size_t size)
+  : memory_(memory), size_(size)
+{
+  vkMapMemory(gctx->device, memory, 0, size, 0, &data_);
+}
+
+memory_mapping::~memory_mapping()
+{
+  vkUnmapMemory(gctx->device, memory_);
+}
+
+void *memory_mapping::data()
+{
+  return data_;
+}
+
+size_t memory_mapping::size()
+{
+  return size_;
 }
 
 }
