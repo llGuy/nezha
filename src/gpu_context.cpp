@@ -21,7 +21,11 @@ static void verify_validation_support_(const std::vector<const char *> &layers)
 
 static void init_instance_(const gpu_config &config) 
 {
-  std::vector<const char*> layers = { "VK_LAYER_KHRONOS_validation" };
+  std::vector<const char*> layers = 
+  { 
+    "VK_LAYER_KHRONOS_validation",
+    /*"VK_LAYER_LUNARG_api_dump"*/ 
+  };
 
   if (gctx->is_validation_enabled)
     verify_validation_support_(layers);
