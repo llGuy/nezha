@@ -1,3 +1,4 @@
+#include <signal.h>
 #include "log.hpp"
 #include "bump_alloc.h"
 #include "render_graph.hpp"
@@ -20,16 +21,24 @@ int main(int argc, char **argv)
   graph.register_buffer(RES("output"))
     .configure({ .size = input_size });
 
+  graph.register_buffer(RES("another_output"))
+    .configure({ .size = input_size });
+
   /* Record computation. */
   graph.begin();
 
   { /* These are all the compute workloads we will dispatch in this job. */
-    graph.add_compute_pass(STG("compute_random"))
-      .set_source("compute_random_kernel")
+    graph.add_compute_pass(STG("fill_random"))
+      .set_source("fill_random_kernel")
       .add_storage_buffer(RES("input"))
       .dispatch(input_size/32, 1, 1);
 
-    graph.add_buffer_copy_to_cpu(RES("output"), RES("input"));
+    graph.add_compute_pass(STG("compute_random"))
+      .set_source("compute_random_kernel")
+      .add_storage_buffer(RES("output"))
+      .dispatch(input_size/32, 1, 1);
+
+    // graph.add_buffer_copy_to_cpu(RES("output"), RES("input"));
   }
 
   /* We get a JOB object after ending the graph recording. */
@@ -43,17 +52,14 @@ int main(int argc, char **argv)
   }
   nz::log_info("GPU finished work!");
 
+#if 0
   /* Reading data from the result of compute kernel */
   nz::log_info("Verifying data...");
   nz::memory_mapping map = graph.get_buffer(RES("output")).map();
 
   float *result = (float *)map.data();
   nz::log_info("Got %f %f %f ...", result[0], result[1], result[2]);
+#endif
 
   return 0;
 }
-
-
-
-
-

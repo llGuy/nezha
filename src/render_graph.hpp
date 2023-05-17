@@ -8,6 +8,7 @@
  * - More async stuff */
 
 
+#include <set>
 #include <array>
 #include <vector>
 #include <assert.h>
@@ -817,6 +818,8 @@ class job
 public:
   job(VkCommandBuffer cmdbuf, VkPipelineStageFlags end_stage, render_graph *builder);
 
+  ~job();
+
 private:
   void submit_();
 
@@ -828,6 +831,8 @@ private:
   /* This is the semaphore that will get signaled when this command buffer
    * is finished. */
   VkSemaphore finished_semaphore_;
+
+  int submission_idx_;
 
   VkPipelineStageFlags end_stage_;
 
@@ -856,6 +861,8 @@ public:
 private:
   VkFence fence_;
 
+  uint32_t ref_count_;
+
   // All the semaphores that will get freed up
   std::vector<VkSemaphore> semaphores_;
 
@@ -863,6 +870,7 @@ private:
   std::vector<VkCommandBuffer> cmdbufs_;
 
   friend class render_graph;
+  friend class job;
 };
 
 class render_graph 
@@ -908,19 +916,19 @@ public:
   job end(cmdbuf_generator *generator = nullptr);
 
   template <typename ...T>
-  pending_workload submit(const job &job, T &&...dependencies)
+  pending_workload submit(job &job, T &&...dependencies)
   {
     class job deps[] = { std::forward<T>(dependencies)... };
     return submit(&job, 1, deps, sizeof...(T));
   }
 
-  pending_workload submit(const job &job)
+  pending_workload submit(job &job)
   {
     return submit(&job, 1, nullptr, 0);
   }
 
-  pending_workload submit(const job *jobs, int count,
-    const job *dependencies, int dependency_count);
+  pending_workload submit(job *jobs, int count,
+    job *dependencies, int dependency_count);
 
   // Make sure that this image is what gets presented to the screen
   void present(const uid_string &);
@@ -1021,7 +1029,7 @@ private:
 
   std::vector<VkCommandBuffer> free_cmdbufs_;
   std::vector<VkSemaphore> free_semaphores_;
-  std::vector<VkFence> free_fences_;
+  std::set<VkFence> free_fences_;
   std::vector<submission> submissions_;
 
   struct present_info 

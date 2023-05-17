@@ -1824,9 +1824,12 @@ submission *render_graph::get_successful_submission_()
 {
   for (auto &sub : submissions_)
   {
-    VkResult res = vkGetFenceStatus(gctx->device, sub.fence_);
-    if (res == VK_SUCCESS)
-      return &sub;
+    if (sub.ref_count_ == 0)
+    {
+      VkResult res = vkGetFenceStatus(gctx->device, sub.fence_);
+      if (res == VK_SUCCESS)
+        return &sub;
+    }
   }
 
   return nullptr;
@@ -1839,7 +1842,7 @@ void render_graph::recycle_submissions_()
   if (sub)
   {
     // Recycle all the stuff
-    free_fences_.push_back(sub->fence_);
+    free_fences_.insert(sub->fence_);
     free_semaphores_.insert(free_semaphores_.end(), sub->semaphores_.begin(), sub->semaphores_.end());
     free_cmdbufs_.insert(free_cmdbufs_.end(), sub->cmdbufs_.begin(), sub->cmdbufs_.end());
   }
@@ -1862,8 +1865,9 @@ VkFence render_graph::get_fence_()
 
   if (free_fences_.size())
   {
-    VkFence ret = free_fences_.back();
-    free_fences_.pop_back();
+    auto iter = free_fences_.begin();
+    VkFence ret = *iter;
+    free_fences_.erase(iter);
     return ret;
   }
   else
@@ -1921,25 +1925,41 @@ VkCommandBuffer render_graph::get_command_buffer_()
   }
 }
 
-pending_workload render_graph::submit(const job *jobs, int count,
-  const job *dependencies, int dependency_count)
+pending_workload render_graph::submit(job *jobs, int count,
+  job *dependencies, int dependency_count)
 {
   VkCommandBuffer *jobs_raw = stack_alloc(VkCommandBuffer, count);
   VkSemaphore *signal_raw = stack_alloc(VkSemaphore, count);
   for (int i = 0; i < count; ++i)
     (jobs_raw[i] = jobs[i].cmdbuf_), (signal_raw[i] = jobs[i].finished_semaphore_);
 
+  uint32_t wait_count = 0;
   VkSemaphore *wait_raw = stack_alloc(VkSemaphore, dependency_count);
   VkPipelineStageFlags *end_stages = stack_alloc(VkPipelineStageFlags, dependency_count);
 
   for (int i = 0; i < dependency_count; ++i)
-    (wait_raw[i] = dependencies[i].finished_semaphore_), (end_stages[i] = dependencies[i].end_stage_);
+  {
+    if (dependencies[i].submission_idx_ >= 0)
+    {
+      submission &s = submissions_[dependencies[i].submission_idx_];
+      if (VK_SUCCESS == vkGetFenceStatus(gctx->device, s.fence_))
+      {
+        submissions_[dependencies[i].submission_idx_].ref_count_--;
+        dependencies[i].submission_idx_ = -1;
+      }
+      else
+      {
+        ++wait_count;
+        (wait_raw[i] = dependencies[i].finished_semaphore_), (end_stages[i] = dependencies[i].end_stage_);
+      }
+    }
+  }
 
   VkSubmitInfo info = {
     .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
     .commandBufferCount = (uint32_t)count,
     .pCommandBuffers = jobs_raw,
-    .waitSemaphoreCount = (uint32_t)dependency_count,
+    .waitSemaphoreCount = (uint32_t)wait_count,
     .pWaitSemaphores = wait_raw,
     .pWaitDstStageMask = end_stages,
     .signalSemaphoreCount = (uint32_t)count,
@@ -1955,10 +1975,12 @@ pending_workload render_graph::submit(const job *jobs, int count,
   workload.fence_ = fence;
   workload.semaphores_.resize(count);
   workload.cmdbufs_.resize(count);
+  workload.ref_count_ = count;
   for (int i = 0; i < count; ++i)
   {
     workload.semaphores_[i] = signal_raw[i];
     workload.cmdbufs_[i] = jobs_raw[i];
+    jobs[i].submission_idx_ = submissions_.size();
   }
 
   submissions_.push_back(std::move(workload));
@@ -2118,6 +2140,14 @@ job::job(VkCommandBuffer cmdbuf, VkPipelineStageFlags end_stage, render_graph *b
 : builder_(builder), cmdbuf_(cmdbuf), end_stage_(end_stage)
 {
   finished_semaphore_ = builder_->get_semaphore_();
+}
+
+job::~job()
+{
+  if (submission_idx_ != -1)
+  {
+    builder_->submissions_[submission_idx_].ref_count_--;
+  }
 }
 
 void pending_workload::wait()
