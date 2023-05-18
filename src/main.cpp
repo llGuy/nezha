@@ -1,9 +1,9 @@
 #include <signal.h>
-#include "log.hpp"
-#include "bump_alloc.h"
-#include "gpu_context.hpp"
+#include <log.hpp>
+#include <bump_alloc.h>
+#include <gpu_context.hpp>
 
-#include "graph.hpp"
+#include <graph.hpp>
 
 struct graph_state
 {
