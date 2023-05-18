@@ -1,5 +1,6 @@
 #include <nezha/log.hpp>
 #include <nezha/graph.hpp>
+#include <nezha/bump_alloc.hpp>
 #include <nezha/gpu_context.hpp>
 
 #include <filesystem>
@@ -10,6 +11,7 @@ namespace nz
 render_graph::render_graph() 
 : resources_(max_resources)
 {
+  nz::init_bump_allocator(nz::megabytes(10));
 }
 
 gpu_buffer_ref render_graph::register_buffer(const buffer_info &cfg) 
@@ -83,6 +85,9 @@ void render_graph::add_image_blit(gpu_image_ref dst, gpu_image_ref src)
 
 void render_graph::begin() 
 {
+  // Clear the bump allocator
+  bump_clear();
+
   // Looping through resource IDs (ID of resources that were used in the frame)
   for (auto &r : used_resources_) 
   {
