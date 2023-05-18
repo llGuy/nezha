@@ -1,4 +1,7 @@
-#include "bump_alloc.h"
+#include <nezha/bump_alloc.hpp>
+
+namespace nz
+{
 
 static void *bump_start_;
 static void *bump_current_;
@@ -21,4 +24,6 @@ void *bump_alloc(u32 size)
 void bump_clear() 
 {
   bump_current_ = bump_start_;
+}
+
 }

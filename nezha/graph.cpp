@@ -1,6 +1,6 @@
-#include "log.hpp"
-#include "graph.hpp"
-#include "gpu_context.hpp"
+#include <nezha/log.hpp>
+#include <nezha/graph.hpp>
+#include <nezha/gpu_context.hpp>
 
 #include <filesystem>
 

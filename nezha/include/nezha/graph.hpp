@@ -1,19 +1,16 @@
 #pragma once
 
-#include "dynamic_array.hpp"
-
-#include "types.hpp"
-#include "resource.hpp"
-
-#include "job.hpp"
-#include "pass.hpp"
-#include "binding.hpp"
-#include "gpu_image.hpp"
-#include "gpu_buffer.hpp"
-
-#include "transfer.hpp"
-#include "render_pass.hpp"
-#include "compute_pass.hpp"
+#include <nezha/job.hpp>
+#include <nezha/pass.hpp>
+#include <nezha/types.hpp>
+#include <nezha/binding.hpp>
+#include <nezha/resource.hpp>
+#include <nezha/transfer.hpp>
+#include <nezha/gpu_image.hpp>
+#include <nezha/gpu_buffer.hpp>
+#include <nezha/render_pass.hpp>
+#include <nezha/compute_pass.hpp>
+#include <nezha/dynamic_array.hpp>
 
 #include <set>
 

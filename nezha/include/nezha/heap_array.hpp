@@ -1,9 +1,12 @@
 #pragma once
 
 #include <vector>
-#include "memory.hpp"
-#include "types.hpp"
+#include <nezha/memory.hpp>
+#include <nezha/types.hpp>
 #include <initializer_list>
+
+namespace nz
+{
 
 template <typename T>
 class heap_array 
@@ -137,3 +140,5 @@ struct buffer
   T &operator[](u32 index)             { return data[index]; }
   const T &operator[](u32 index) const { return data[index]; }
 };
+
+}

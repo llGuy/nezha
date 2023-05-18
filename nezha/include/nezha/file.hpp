@@ -3,8 +3,11 @@
 #include <string>
 #include <fstream>
 
-#include "types.hpp"
-#include "heap_array.hpp"
+#include <nezha/types.hpp>
+#include <nezha/heap_array.hpp>
+
+namespace nz
+{
 
 enum file_type : u32 
 {
@@ -35,3 +38,5 @@ private:
   std::string path_;
   size_t size_;
 };
+
+}

@@ -1,5 +1,5 @@
-#include "graph.hpp"
-#include "resource.hpp"
+#include <nezha/graph.hpp>
+#include <nezha/resource.hpp>
 
 namespace nz
 {

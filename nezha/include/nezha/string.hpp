@@ -3,6 +3,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+namespace nz
+{
+
 // CRC32 Table (zlib polynomial)
 static constexpr uint32_t crc_table[256] = 
 {
@@ -108,6 +111,8 @@ inline uint32_t get_id(uint32_t &id_counter)
     id_extracter<hash>::id = id_counter++;
 
   return id_extracter<hash>::id;
+}
+
 }
 
 /* If you want to create a string hash table for a specific system,

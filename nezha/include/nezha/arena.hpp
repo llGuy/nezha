@@ -1,7 +1,10 @@
 #pragma once
 
-#include "types.hpp"
-#include "memory.hpp"
+#include <nezha/types.hpp>
+#include <nezha/memory.hpp>
+
+namespace nz
+{
 
 template <typename T>
 class arena_pool 
@@ -67,3 +70,4 @@ private:
   u32 pool_size_;
 };
 
+}

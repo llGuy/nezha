@@ -1,7 +1,10 @@
 #include <chrono>
 #include <thread>
-#include "time.hpp"
+#include <nezha/time.hpp>
 #include <GLFW/glfw3.h>
+
+namespace nz
+{
 
 time_data *gtime;
 
@@ -34,4 +37,6 @@ void sleep(float t_s)
 {
   std::this_thread::sleep_for(
     std::chrono::milliseconds((uint32_t)(t_s * 1000.0f)));
+}
+
 }

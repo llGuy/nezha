@@ -4,6 +4,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
 
+namespace nz
+{
+
 // Primitive
 using s8 = int8_t;
 using s16 = int16_t;
@@ -31,3 +34,5 @@ using iv4 = glm::ivec4;
 using q4 = glm::quat;
 
 using m4x4 = glm::mat4;
+
+}

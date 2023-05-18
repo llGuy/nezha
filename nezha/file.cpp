@@ -1,5 +1,8 @@
-#include "file.hpp"
-#include "log.hpp"
+#include <nezha/file.hpp>
+#include <nezha/log.hpp>
+
+namespace nz
+{
 
 file::file(const std::string &path, u32 file_type_bits) 
 : path_(path), file_type_bits_(file_type_bits) 
@@ -40,4 +43,6 @@ std::string file::read_text()
 void file::write(const void *buffer, u32 size) 
 {
   file_stream_.write((char *)buffer, size);
+}
+
 }

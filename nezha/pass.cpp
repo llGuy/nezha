@@ -1,4 +1,4 @@
-#include "pass.hpp"
+#include <nezha/pass.hpp>
 
 namespace nz
 {

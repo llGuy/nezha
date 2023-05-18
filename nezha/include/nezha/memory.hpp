@@ -2,7 +2,10 @@
 
 #include <utility>
 #include <string.h>
-#include "types.hpp"
+#include <nezha/types.hpp>
+
+namespace nz
+{
 
 inline constexpr u32 kilobytes(u32 kb) { return(kb * 1024); }
 inline constexpr u32 megabytes(u32 mb) { return(kilobytes(mb * 1024)); }
@@ -47,6 +50,8 @@ template <typename T>
 inline void zero_memory(u32 count, T *ptr) 
 {
   memset(ptr, 0, sizeof(T) * count);
+}
+
 }
 
 #define stack_alloc(type, count) (type *)alloca(sizeof(type) * (count))

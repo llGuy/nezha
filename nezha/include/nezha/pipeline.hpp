@@ -1,7 +1,7 @@
 #pragma once
 
-#include "heap_array.hpp"
-#include "gpu_context.hpp"
+#include <nezha/heap_array.hpp>
+#include <nezha/gpu_context.hpp>
 
 #include <vulkan/vulkan.h>
 

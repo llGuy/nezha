@@ -1,8 +1,7 @@
-#include "graph.hpp"
-#include "bump_alloc.h"
-#include "render_pass.hpp"
-
-#include "gpu_context.hpp"
+#include <nezha/graph.hpp>
+#include <nezha/bump_alloc.hpp>
+#include <nezha/render_pass.hpp>
+#include <nezha/gpu_context.hpp>
 
 namespace nz
 {

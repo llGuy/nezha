@@ -1,7 +1,7 @@
 #pragma once
 
-#include "types.hpp"
-#include "binding.hpp"
+#include <nezha/types.hpp>
+#include <nezha/binding.hpp>
 
 namespace nz
 {

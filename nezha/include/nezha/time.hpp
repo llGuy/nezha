@@ -1,5 +1,8 @@
 #pragma once
 
+namespace nz
+{
+
 extern struct time_data 
 {
   float frame_dt;
@@ -14,3 +17,5 @@ void set_max_framerate(float max_fps);
 
 // Seconds
 void sleep(float t_s);
+
+}

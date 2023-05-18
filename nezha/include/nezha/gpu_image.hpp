@@ -1,8 +1,8 @@
 #pragma once
 
-#include "types.hpp"
-#include "binding.hpp"
-#include "string.hpp"
+#include <nezha/types.hpp>
+#include <nezha/binding.hpp>
+#include <nezha/string.hpp>
 
 #include <vector>
 

@@ -1,6 +1,6 @@
-#include "graph.hpp"
-#include "gpu_image.hpp"
-#include "gpu_context.hpp"
+#include <nezha/graph.hpp>
+#include <nezha/gpu_image.hpp>
+#include <nezha/gpu_context.hpp>
 
 namespace nz
 {

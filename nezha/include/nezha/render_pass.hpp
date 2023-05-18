@@ -1,7 +1,7 @@
 #pragma once
 
-#include "binding.hpp"
-#include "gpu_image.hpp"
+#include <nezha/binding.hpp>
+#include <nezha/gpu_image.hpp>
 
 namespace nz
 {

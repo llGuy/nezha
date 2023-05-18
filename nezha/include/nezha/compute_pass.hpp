@@ -1,10 +1,10 @@
 #pragma once
 
-#include "types.hpp"
+#include <nezha/types.hpp>
 #include <vulkan/vulkan.h>
 
-#include "gpu_image.hpp"
-#include "gpu_buffer.hpp"
+#include <nezha/gpu_image.hpp>
+#include <nezha/gpu_buffer.hpp>
 
 namespace nz
 {

@@ -1,8 +1,8 @@
 #include <filesystem>
-#include "memory.hpp"
-#include "pipeline.hpp"
-#include "log.hpp"
-#include "file.hpp"
+#include <nezha/memory.hpp>
+#include <nezha/pipeline.hpp>
+#include <nezha/log.hpp>
+#include <nezha/file.hpp>
 
 namespace nz
 {

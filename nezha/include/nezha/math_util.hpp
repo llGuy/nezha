@@ -2,7 +2,10 @@
 
 #include <glm/glm.hpp>
 
-#include "types.hpp"
+#include <nezha/types.hpp>
+
+namespace nz
+{
 
 template <typename T>
 inline T floor_to(T x, typename T::value_type multiple) 
@@ -26,3 +29,4 @@ void apply_3d(iv3 dim, T pred)
         pred(off);
 }
 
+}

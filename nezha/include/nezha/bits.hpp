@@ -1,7 +1,10 @@
 #pragma once
 
-#include "types.hpp"
-#include "heap_array.hpp"
+#include <nezha/types.hpp>
+#include <nezha/heap_array.hpp>
+
+namespace nz
+{
 
 inline u32 pop_count(u32 bits) 
 {
@@ -50,3 +53,5 @@ private:
   // Bits are grouped into uint32_t
   heap_array<u32> bits_;
 };
+
+}

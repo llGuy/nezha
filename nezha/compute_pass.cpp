@@ -1,10 +1,10 @@
-#include "file.hpp"
-#include "graph.hpp"
-#include "memory.hpp"
-#include "gpu_context.hpp"
-#include "bump_alloc.h"
-#include "compute_pass.hpp"
-#include "descriptor_helper.hpp"
+#include <nezha/file.hpp>
+#include <nezha/graph.hpp>
+#include <nezha/memory.hpp>
+#include <nezha/gpu_context.hpp>
+#include <nezha/bump_alloc.hpp>
+#include <nezha/compute_pass.hpp>
+#include <nezha/descriptor_helper.hpp>
 
 namespace nz
 {

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "render_pass.hpp"
-#include "compute_pass.hpp"
-#include "transfer.hpp"
+#include <nezha/render_pass.hpp>
+#include <nezha/compute_pass.hpp>
+#include <nezha/transfer.hpp>
 
 namespace nz
 {

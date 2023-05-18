@@ -1,13 +1,13 @@
 #include <signal.h>
-#include <log.hpp>
-#include <bump_alloc.h>
-#include <gpu_context.hpp>
 
-#include <graph.hpp>
+#include <nezha/log.hpp>
+#include <nezha/graph.hpp>
+#include <nezha/bump_alloc.hpp>
+#include <nezha/gpu_context.hpp>
 
 struct graph_state
 {
-  u32 input_size;
+  uint32_t input_size;
 
   // Buffers in use
   nz::gpu_buffer_ref input_buffer;
@@ -66,14 +66,14 @@ nz::job record_second_job(nz::render_graph &graph, const graph_state &state)
 
 int main(int argc, char **argv) 
 {
-  init_bump_allocator(megabytes(10));
+  nz::init_bump_allocator(nz::megabytes(10));
 
   /* Initialize API */
   nz::init_gpu_context({ .create_surface = false });
   nz::render_graph graph;
   
   /* Configure resources */
-  const u32 INPUT_SIZE = (1<<10) * sizeof(float);
+  const uint32_t INPUT_SIZE = (1<<10) * sizeof(float);
 
   graph_state state = {
     .input_size = INPUT_SIZE,

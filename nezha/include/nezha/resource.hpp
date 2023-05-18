@@ -1,7 +1,7 @@
 #pragma once
 
-#include "gpu_image.hpp"
-#include "gpu_buffer.hpp"
+#include <nezha/gpu_image.hpp>
+#include <nezha/gpu_buffer.hpp>
 
 namespace nz
 {
