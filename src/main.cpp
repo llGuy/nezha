@@ -4,21 +4,32 @@
 #include "render_graph.hpp"
 #include "gpu_context.hpp"
 
-nz::job record_first_job(nz::render_graph &graph, u32 input_size)
+struct graph_state
+{
+  u32 input_size;
+
+  // This initializes a buffer with 0, 1, 2, 3...
+  nz::compute_kernel init_kernel;
+
+  // This doubles all values in a buffer
+  nz::compute_kernel double_kernel;
+};
+
+nz::job record_first_job(nz::render_graph &graph, const graph_state &state)
 {
   /* Record computation. */
   graph.begin();
 
   { /* These are all the compute workloads we will dispatch in this job. */
-    graph.add_compute_pass(STG("fill_random"))
-      .set_source("fill_random_kernel")
+    graph.add_compute_pass()
+      .set_kernel(state.init_kernel)
       .add_storage_buffer(RES("input"))
-      .dispatch(input_size/32, 1, 1);
+      .dispatch(state.input_size/32, 1, 1);
 
-    graph.add_compute_pass(STG("compute_random"))
-      .set_source("compute_random_kernel")
+    graph.add_compute_pass()
+      .set_kernel(state.double_kernel)
       .add_storage_buffer(RES("input"))
-      .dispatch(input_size/32, 1, 1);
+      .dispatch(state.input_size/32, 1, 1);
   }
 
   /* We get a JOB object after ending the graph recording. */
@@ -27,14 +38,19 @@ nz::job record_first_job(nz::render_graph &graph, u32 input_size)
   return job;
 }
 
-nz::job record_second_job(nz::render_graph &graph, u32 input_size)
+nz::job record_second_job(nz::render_graph &graph, const graph_state &state)
 {
   graph.begin();
 
-  graph.add_compute_pass(STG("another_thing"))
-    .set_source("compute_random_kernel")
+  graph.add_compute_pass()
+    .set_kernel(state.double_kernel)
     .add_storage_buffer(RES("input"))
-    .dispatch(input_size/32, 1, 1);
+    .dispatch(state.input_size/32, 1, 1);
+
+  graph.add_compute_pass()
+    .set_kernel(state.double_kernel)
+    .add_storage_buffer(RES("input"))
+    .dispatch(state.input_size/32, 1, 1);
 
   graph.add_buffer_copy_to_cpu(RES("output"), RES("input"));
 
@@ -52,16 +68,20 @@ int main(int argc, char **argv)
   nz::render_graph graph;
   
   /* Configure resources */
-  u32 input_size = (1<<10) * sizeof(float);
+  graph_state state = {
+    .input_size = (1<<10) * sizeof(float),
+    .init_kernel = graph.register_compute_kernel("fill_random_kernel"),
+    .double_kernel = graph.register_compute_kernel("compute_random_kernel")
+  };
 
   graph.register_buffer(RES("input"))
-    .configure({ .size = input_size });
+    .configure({ .size = state.input_size });
 
   graph.register_buffer(RES("output"))
-    .configure({ .size = input_size });
+    .configure({ .size = state.input_size });
 
-  nz::job job1 = record_first_job(graph, input_size);
-  nz::job job2 = record_second_job(graph, input_size);
+  nz::job job1 = record_first_job(graph, state);
+  nz::job job2 = record_second_job(graph, state);
 
   /* After submitting, we get a pending workload and wait for it. */
   nz::log_info("GPU started work!");

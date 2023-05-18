@@ -38,8 +38,8 @@ std::string make_shader_src_path(const char *path, VkShaderStageFlags stage)
 
 /************************* Render Pass ****************************/
 // TODO:
-render_pass::render_pass(render_graph *builder, const uid_string &uid) 
-  : builder_(builder), uid_(uid), depth_index_(-1), rect_{}, 
+render_pass::render_pass(render_graph *builder, u32 idx) 
+  : builder_(builder), idx_(idx), depth_index_(-1), rect_{}, 
     prepare_commands_proc_(nullptr)
 {
 }
@@ -57,7 +57,7 @@ render_pass &render_pass::add_color_attachment(
   // Get image will allocate space for the image struct if it hasn't 
   // been created yet
   gpu_image &img = builder_->get_image_(uid.id);
-  img.add_usage_node_(uid_.id, binding_id);
+  img.add_usage_node_(idx_, binding_id);
   img.configure(info);
 
   return *this;
@@ -78,7 +78,7 @@ render_pass &render_pass::add_depth_attachment(
   // Get image will allocate space for the image struct if it hasn't been 
   // created yet
   gpu_image &img = builder_->get_image_(uid.id);
-  img.add_usage_node_(uid_.id, binding_id);
+  img.add_usage_node_(idx_, binding_id);
 
   image_info info_tmp = info;
   info_tmp.is_depth = true;
@@ -270,14 +270,13 @@ render_pass &render_pass::prepare_commands(
 compute_pass::compute_pass(render_graph *builder, const uid_string &uid) 
   : builder_(builder), uid_(uid),
   push_constant_(nullptr),
-  push_constant_size_(0),
-  pipeline_(VK_NULL_HANDLE) 
+  push_constant_size_(0)
 {
 }
 
-compute_pass &compute_pass::set_source(const char *src_path) 
+compute_pass &compute_pass::set_kernel(compute_kernel kernel) 
 {
-  src_path_ = src_path;
+  kernel_ = kernel;
   return *this;
 }
 
@@ -391,7 +390,7 @@ void compute_pass::reset_()
   bindings_.clear();
 }
 
-void compute_pass::create_() 
+void compute_pass::create_(compute_kernel_state &state)
 {
   VkPushConstantRange push_constant_range = {};
   push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -417,11 +416,11 @@ void compute_pass::create_()
   }
 
   VK_CHECK(vkCreatePipelineLayout(
-    gctx->device, &pipeline_layout_info, nullptr, &layout_));
+    gctx->device, &pipeline_layout_info, nullptr, &state.layout));
 
   // Shader stage
   heap_array<u8> src_bytes = file(
-    make_shader_src_path(src_path_, VK_SHADER_STAGE_COMPUTE_BIT), 
+    make_shader_src_path(state.src, VK_SHADER_STAGE_COMPUTE_BIT), 
     file_type_bin | file_type_in).read_binary();
 
   VkShaderModule shader_module;
@@ -442,14 +441,14 @@ void compute_pass::create_()
   VkComputePipelineCreateInfo compute_pipeline_info = {};
   compute_pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
   compute_pipeline_info.stage = module_info;
-  compute_pipeline_info.layout = layout_;
+  compute_pipeline_info.layout = state.layout;
 
   VK_CHECK(vkCreateComputePipelines(gctx->device, VK_NULL_HANDLE, 1, 
-    &compute_pipeline_info, nullptr, &pipeline_));
+    &compute_pipeline_info, nullptr, &state.pipeline));
 }
 
 // This also needs to issue all synchronization stuff that may be needed
-void compute_pass::issue_commands_(VkCommandBuffer cmdbuf) 
+void compute_pass::issue_commands_(VkCommandBuffer cmdbuf, compute_kernel_state &state)
 {
   // Loop through all bindings (make sure images and buffers have proper 
   // barriers issued for them) This is a very rough estimate - TODO: Make sure 
@@ -464,7 +463,7 @@ void compute_pass::issue_commands_(VkCommandBuffer cmdbuf)
 
   int i = 0;
   // Once all barriers have been issued, we can dispatch the pipeline!
-  for (auto b : bindings_) 
+  for (auto &b : bindings_) 
   {
     auto &res = builder_->get_resource_(b.rref);
 
@@ -531,13 +530,13 @@ void compute_pass::issue_commands_(VkCommandBuffer cmdbuf)
     ++i;
   }
 
-  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-  vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 
+  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, state.pipeline);
+  vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, state.layout, 
     0, bindings_.size(), descriptor_sets, 0, nullptr);
 
   if (push_constant_size_)
-    vkCmdPushConstants(cmdbuf, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 
-        0, push_constant_size_, push_constant_);
+    vkCmdPushConstants(cmdbuf, state.layout, VK_SHADER_STAGE_COMPUTE_BIT, 
+      0, push_constant_size_, push_constant_);
 
   u32 gx = dispatch_params_.x, gy = dispatch_params_.y, gz = dispatch_params_.z;
   if (dispatch_params_.is_waves) 
@@ -571,6 +570,11 @@ graph_pass::graph_pass(const compute_pass &pass)
 {
 }
 
+graph_pass::graph_pass(const transfer_operation &op)
+: tr_(op), type_(graph_transfer_pass)
+{
+}
+
 graph_pass::type graph_pass::get_type() 
 {
   return type_;
@@ -584,6 +588,11 @@ render_pass &graph_pass::get_render_pass()
 compute_pass &graph_pass::get_compute_pass() 
 {
   return cp_;
+}
+
+transfer_operation &graph_pass::get_transfer_operation()
+{
+  return tr_;
 }
 
 bool graph_pass::is_initialized() 
@@ -603,6 +612,11 @@ binding &graph_pass::get_binding(uint32_t idx)
   case type::graph_render_pass: 
   {
     return rp_.bindings_[idx];
+  } break;
+
+  case type::graph_transfer_pass:
+  {
+    return tr_.get_binding(idx);
   } break;
 
   default: 
@@ -1074,8 +1088,8 @@ transfer_operation::transfer_operation()
 }
 
 transfer_operation::transfer_operation(
-  graph_stage_ref ref, render_graph *builder) 
-: type_(type::none), builder_(builder), stage_ref_(ref) 
+  render_graph *builder, u32 idx) 
+: type_(type::none), builder_(builder), idx_(idx)
 {
 }
 
@@ -1093,7 +1107,7 @@ void transfer_operation::init_as_buffer_update(
   buffer_update_state_.size = size;
 
   gpu_buffer &buf = builder_->get_buffer_(buf_ref);
-  buf.add_usage_node_(stage_ref_, 0);
+  buf.add_usage_node_(idx_, 0);
 
   if (size == 0) 
   {
@@ -1116,13 +1130,13 @@ void transfer_operation::init_as_buffer_copy_to_cpu(
   buffer_copy_to_cpu_.dst = src;
 
   gpu_buffer &buf0 = builder_->get_buffer_(dst);
-  buf0.add_usage_node_(stage_ref_, 0);
+  buf0.add_usage_node_(idx_, 0);
 
   // Make sure the dst buffer is host visible
   buf0.configure({.host_visible = true});
 
   gpu_buffer &buf1 = builder_->get_buffer_(src);
-  buf1.add_usage_node_(stage_ref_, 1);
+  buf1.add_usage_node_(idx_, 1);
 }
 
 void transfer_operation::init_as_image_blit(
@@ -1137,10 +1151,10 @@ void transfer_operation::init_as_image_blit(
   bindings_[1] = b_dst;
 
   gpu_image &src_img = builder_->get_image_(src);
-  src_img.add_usage_node_(stage_ref_, 0);
+  src_img.add_usage_node_(idx_, 0);
 
   gpu_image &dst_img = builder_->get_image_(dst);
-  dst_img.add_usage_node_(stage_ref_, 1);
+  dst_img.add_usage_node_(idx_, 1);
 }
 
 binding &transfer_operation::get_binding(uint32_t idx) 
@@ -1241,74 +1255,49 @@ gpu_buffer &render_graph::register_buffer(const uid_string &uid)
   return get_buffer_(uid.id);
 }
 
-render_pass &render_graph::add_render_pass(const uid_string &uid) 
+compute_kernel render_graph::register_compute_kernel(const char *src)
 {
-  if (passes_.size() <= uid.id) 
-  {
-    // Reallocate the vector such that the new pass will fit
-    passes_.resize(uid.id + 1);
-  }
-
-  if (!passes_[uid.id].is_initialized())
-    new (&passes_[uid.id]) graph_pass(render_pass(this, uid));
-
-  recorded_stages_.push_back(uid.id);
-
-  return get_render_pass_(uid.id);
+  compute_kernel k = kernels_.size();
+  kernels_.push_back({ src, VK_NULL_HANDLE, VK_NULL_HANDLE });
+  return k;
 }
 
-compute_pass &render_graph::add_compute_pass(const uid_string &uid) 
+render_pass &render_graph::add_render_pass() 
 {
-  if (passes_.size() <= uid.id) 
-  {
-    // Reallocate the vector such that the new pass will fit
-    passes_.resize(uid.id + 1);
-  }
+  recorded_stages_.emplace_back(graph_pass(render_pass(this, recorded_stages_.size())));
+  return recorded_stages_.back().get_render_pass();
+}
 
-  if (!passes_[uid.id].is_initialized())
-    new (&passes_[uid.id]) graph_pass(compute_pass(this, uid));
-
-  recorded_stages_.push_back(uid.id);
-
-  return get_compute_pass_(uid.id);
+compute_pass &render_graph::add_compute_pass() 
+{
+  recorded_stages_.emplace_back(graph_pass(compute_pass(this, recorded_stages_.size())));
+  return recorded_stages_.back().get_compute_pass();
 }
 
 void render_graph::add_buffer_update(
   const uid_string &uid, void *data, u32 offset, u32 size) 
 {
-  graph_stage_ref ref (graph_stage_ref::type::transfer, transfers_.size());
+  recorded_stages_.emplace_back(graph_pass(transfer_operation(this, recorded_stages_.size())));
+  auto &transfer = recorded_stages_.back();
 
-  transfers_.push_back(transfer_operation(ref, this));
-
-  transfer_operation &transfer = transfers_[transfers_.size() - 1];
-  transfer.init_as_buffer_update(uid.id, data, offset, size);
-
-  recorded_stages_.push_back(ref);
+  transfer.get_transfer_operation().init_as_buffer_update(uid.id, data, offset, size);
 }
 
 void render_graph::add_buffer_copy_to_cpu(
   const uid_string &dst, const uid_string &src)
 {
-  graph_stage_ref ref (graph_stage_ref::type::transfer, transfers_.size());
+  recorded_stages_.emplace_back(graph_pass(transfer_operation(this, recorded_stages_.size())));
+  auto &transfer = recorded_stages_.back();
 
-  transfers_.push_back(transfer_operation(ref, this));
-
-  transfer_operation &transfer = transfers_[transfers_.size() - 1];
-  transfer.init_as_buffer_copy_to_cpu(dst.id, src.id);
-
-  recorded_stages_.push_back(ref);
+  transfer.get_transfer_operation().init_as_buffer_copy_to_cpu(dst.id, src.id);
 }
 
 void render_graph::add_image_blit(const uid_string &src, const uid_string &dst) 
 {
-  graph_stage_ref ref (graph_stage_ref::type::transfer, transfers_.size());
+  recorded_stages_.emplace_back(graph_pass(transfer_operation(this, recorded_stages_.size())));
+  auto &transfer = recorded_stages_.back();
 
-  transfers_.push_back(transfer_operation(ref, this));
-
-  transfer_operation &transfer = transfers_[transfers_.size() - 1];
-  transfer.init_as_image_blit(src.id, dst.id);
-
-  recorded_stages_.push_back(ref);
+  transfer.get_transfer_operation().init_as_image_blit(src.id, dst.id);
 }
 
 void render_graph::begin() 
@@ -1316,7 +1305,7 @@ void render_graph::begin()
   present_info_.is_active = false;
 
   // Looping through resource IDs (ID of resources that were used in the frame)
-  for (auto r : used_resources_) 
+  for (auto &r : used_resources_) 
   {
     resources_[r].was_used_ = false;
 
@@ -1342,41 +1331,34 @@ void render_graph::begin()
     }
   }
 
-  for (auto stg : recorded_stages_) 
+  for (auto &stg : recorded_stages_) 
   {
-    if (stg.stage_type == graph_stage_ref::type::pass) 
+    switch (stg.type_)
     {
-      if (stg == graph_stage_ref_present) 
-        continue;
-
-      switch (passes_[stg].get_type()) 
+      case graph_pass::type::graph_compute_pass:
       {
-        case graph_pass::graph_compute_pass: 
-        {
-          compute_pass &cp = passes_[stg].get_compute_pass();
-          cp.bindings_.clear();
-        } break;
+        compute_pass &cp = stg.get_compute_pass();
+        cp.bindings_.clear();
+      } break;
 
-        case graph_pass::graph_render_pass: 
-        {
-          render_pass &rp = passes_[stg].get_render_pass();
-          rp.bindings_.clear();
-          rp.depth_index_ = -1;
-        } break;
+      case graph_pass::type::graph_render_pass:
+      {
+        render_pass &rp = stg.get_render_pass();
+        rp.bindings_.clear();
+      } break;
 
-        default: break;
-      }
-    }
-    else if (stg.stage_type == graph_stage_ref::type::transfer) 
-    {
-      transfers_[stg].bindings_ = nullptr;
+      case graph_pass::type::graph_transfer_pass:
+      {
+        stg.get_transfer_operation().bindings_ = nullptr;
+      } break;
+
+      default: break;
     }
   }
 
   recorded_stages_.clear();
   used_resources_.clear();
   recorded_stages_.clear();
-  transfers_.clear();
 
   present_info_.is_active = false;
 }
@@ -1403,11 +1385,11 @@ void render_graph::prepare_pass_graph_stage_(graph_stage_ref stg)
   else 
   {
     // Handle render pass / compute pass case
-    switch (passes_[stg].get_type()) 
+    switch (recorded_stages_[stg].get_type()) 
     {
     case graph_pass::graph_compute_pass: 
     {
-      compute_pass &cp = passes_[stg].get_compute_pass();
+      compute_pass &cp = recorded_stages_[stg].get_compute_pass();
 
       // Loop through each binding
       for (auto &bind : cp.bindings_) {
@@ -1429,7 +1411,7 @@ void render_graph::prepare_pass_graph_stage_(graph_stage_ref stg)
 
     case graph_pass::graph_render_pass: 
     {
-      render_pass &rp = passes_[stg].get_render_pass();
+      render_pass &rp = recorded_stages_[stg].get_render_pass();
 
       // Loop through each binding
       for (auto &bind : rp.bindings_) {
@@ -1447,15 +1429,19 @@ void render_graph::prepare_pass_graph_stage_(graph_stage_ref stg)
       }
     } break;
 
+    case graph_pass::graph_transfer_pass:
+    {
+      transfer_operation &op = recorded_stages_[stg].get_transfer_operation();
+      prepare_transfer_graph_stage_(op);
+    } break;
+
     default: break;
     }
   }
 }
 
-void render_graph::prepare_transfer_graph_stage_(graph_stage_ref ref) 
+void render_graph::prepare_transfer_graph_stage_(transfer_operation &op) 
 {
-  transfer_operation &op = transfers_[ref.stage_idx];
-
   switch (op.type_) 
   {
   case transfer_operation::type::buffer_update: {
@@ -1566,31 +1552,42 @@ void render_graph::execute_pass_graph_stage_(
   else 
   {
     // Handle compute / render passes
-    switch (passes_[stg].get_type()) 
+    switch (recorded_stages_[stg].get_type()) 
     {
     case graph_pass::graph_compute_pass: 
     {
       last_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 
-      compute_pass &cp = passes_[stg].get_compute_pass();
+      compute_pass &cp = recorded_stages_[stg].get_compute_pass();
+      compute_kernel_state &cp_state = kernels_[cp.kernel_];
 
-      if (cp.pipeline_ == VK_NULL_HANDLE) 
+      if (cp_state.pipeline == VK_NULL_HANDLE) 
       {
-        // Actually initialize the compute pipeline
-        cp.create_();
+        // Actually initialize the compute pipeline/layout
+        // which is stored in the compute_kernel_state of the render graph
+        nz::log_info("Created a compute pipeline!");
+        cp.create_(cp_state);
       }
 
       // Issue the commands
-      cp.issue_commands_(info.cmdbuf);
+      cp.issue_commands_(info.cmdbuf, cp_state);
     } break;
 
     case graph_pass::graph_render_pass: 
     {
       last_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-      render_pass &rp = passes_[stg].get_render_pass();
+      render_pass &rp = recorded_stages_[stg].get_render_pass();
 
       rp.issue_commands_(info.cmdbuf);
+    } break;
+
+    case graph_pass::graph_transfer_pass:
+    {
+      last_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+      transfer_operation &op = recorded_stages_[stg].get_transfer_operation();
+      execute_transfer_graph_stage_(op, info);
     } break;
 
     default: break;
@@ -1599,9 +1596,8 @@ void render_graph::execute_pass_graph_stage_(
 }
 
 void render_graph::execute_transfer_graph_stage_(
-  graph_stage_ref ref, const cmdbuf_generator::cmdbuf_info &info) 
+  transfer_operation &op, const cmdbuf_generator::cmdbuf_info &info) 
 {
-  transfer_operation &op = transfers_[ref.stage_idx];
   switch (op.type_) 
   {
   case transfer_operation::type::buffer_update: 
@@ -1775,16 +1771,11 @@ job render_graph::end(cmdbuf_generator *generator)
   // swapchain_img_idx_ = info.swapchain_idx;
 
   // First traverse through all stages in order to figure out resources to use
-  for (auto stg : recorded_stages_) 
-  {
-    if (stg.stage_type == graph_stage_ref::type::pass) 
-      prepare_pass_graph_stage_(stg);
-    else if (stg.stage_type == graph_stage_ref::type::transfer) 
-      prepare_transfer_graph_stage_(stg);
-  }
+  for (int i = 0; i < recorded_stages_.size(); ++i) 
+    prepare_pass_graph_stage_(i);
 
   // Loop through all used resources
-  for (auto rref : used_resources_) 
+  for (auto &rref : used_resources_) 
   {
     graph_resource &res = resources_[rref];
 
@@ -1806,12 +1797,9 @@ job render_graph::end(cmdbuf_generator *generator)
   VkPipelineStageFlags last_stage = 0;
 
   // Now loop through the passes and actually issue the commands!
-  for (auto stg : recorded_stages_) 
+  for (int i = 0; i < recorded_stages_.size(); ++i) 
   {
-    if (stg.stage_type == graph_stage_ref::type::pass) 
-      execute_pass_graph_stage_(stg, last_stage, info);
-    else if (stg.stage_type == graph_stage_ref::type::transfer) 
-      execute_transfer_graph_stage_(stg, info);
+    execute_pass_graph_stage_(i, last_stage, info);
   }
 
   vkEndCommandBuffer(current_cmdbuf_);
@@ -1997,6 +1985,8 @@ gpu_buffer &render_graph::get_buffer(const uid_string &uid)
 
 void render_graph::present(const uid_string &res_uid) 
 {
+  assert(false);
+
   present_info_.to_present = res_uid.id;
   present_info_.is_active = true;
 
@@ -2004,7 +1994,7 @@ void render_graph::present(const uid_string &res_uid)
   img.reference_ = graph_stage_ref_present;
   img.add_usage_node_(graph_stage_ref_present, 0);
 
-  recorded_stages_.push_back(graph_stage_ref_present);
+  // recorded_stages_.push_back(graph_stage_ref_present);
 }
 
 graph_resource_tracker render_graph::get_resource_tracker() 

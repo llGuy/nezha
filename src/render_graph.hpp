@@ -21,7 +21,9 @@ namespace nz
 
 // ID of a resource
 using graph_resource_ref = uint32_t;
+using graph_stage_ref = uint32_t;
 
+#if 0
 // ID of a pass stage
 struct graph_stage_ref 
 {
@@ -54,6 +56,7 @@ struct graph_stage_ref
     return stage_idx;
   }
 };
+#endif
 
 constexpr uint32_t invalid_graph_ref = 0xFFFFFFF;
 constexpr uint32_t graph_stage_ref_present = 0xBADC0FE;
@@ -71,7 +74,7 @@ struct resource_usage_node
 
   inline bool is_invalid() 
   {
-    return stage.stage_idx == invalid_graph_ref;
+    return stage == invalid_graph_ref;
   }
 
   graph_stage_ref stage;
@@ -213,12 +216,84 @@ struct image_info
   uint32_t layer_count = 1;
 };
 
+
+/************************* Transfer *******************************/
+class transfer_operation 
+{
+public:
+  enum type 
+  {
+    buffer_update, buffer_copy, buffer_copy_to_cpu, image_copy, image_blit, none
+  };
+
+  transfer_operation();
+  transfer_operation(render_graph *builder, u32 idx);
+
+  void init_as_buffer_update(
+    graph_resource_ref buf_ref, void *data, uint32_t offset, uint32_t size);
+
+  void init_as_buffer_copy_to_cpu(
+    graph_resource_ref dst, graph_resource_ref src);
+
+  // For now, assume we blit the entire thing
+  void init_as_image_blit(graph_resource_ref src, graph_resource_ref dst);
+
+  binding &get_binding(uint32_t idx);
+
+  /* TODO
+  void init_as_buffer_copy(
+    graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
+  void init_as_image_copy(
+    graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
+  */
+
+private:
+  type type_;
+  render_graph *builder_;
+
+  // Index of this stage in the recorded stages vector in render_graph
+  u32 idx_;
+
+  binding *bindings_;
+
+  union 
+  {
+    struct 
+    {
+      void *data;
+      uint32_t offset;
+      uint32_t size;
+    } buffer_update_state_;
+
+    struct
+    {
+      graph_resource_ref dst, src;
+    } buffer_copy_to_cpu_;
+
+    // TODO:
+    struct 
+    {
+    } buffer_copy_state;
+
+    struct 
+    {
+    } image_copy_state;
+
+    struct 
+    {
+    } image_blit_state;
+  };
+
+  friend class render_graph;
+};
+
+
 /************************* Render Pass ****************************/
 class render_pass 
 {
 public:
   render_pass() = default;
-  render_pass(render_graph *, const uid_string &uid);
+  render_pass(render_graph *, u32 idx);
 
   ~render_pass() = default;
 
@@ -276,7 +351,7 @@ private:
   // -1 if there is no depth attachment
   s32 depth_index_;
 
-  uid_string uid_;
+  u32 idx_;
 
   VkRect2D rect_;
 
@@ -293,6 +368,17 @@ private:
 
 
 /************************* Compute Pass ***************************/
+
+// This is just a reference into an array of available kernels
+using compute_kernel = u32;
+
+struct compute_kernel_state
+{
+  const char *src;
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+};
+
 class compute_pass 
 {
 public:
@@ -301,7 +387,7 @@ public:
 
   ~compute_pass() = default;
 
-  compute_pass &set_source(const char *src_path);
+  compute_pass &set_kernel(compute_kernel kernel);
 
   compute_pass &send_data(const void *data, uint32_t size);
 
@@ -332,10 +418,10 @@ private:
   void reset_();
 
   // Actually creates the compute pass
-  void create_();
+  void create_(compute_kernel_state &);
 
   // Issue the commands to command buffer
-  void issue_commands_(VkCommandBuffer cmdbuf);
+  void issue_commands_(VkCommandBuffer cmdbuf, compute_kernel_state &state);
 
   // void add_image(binding::type type);
 
@@ -346,7 +432,7 @@ private:
   uint32_t push_constant_size_;
 
   // Shader source path
-  const char *src_path_;
+  compute_kernel kernel_;
 
   // Uniform bindings
   std::vector<binding> bindings_;
@@ -359,11 +445,6 @@ private:
     uint32_t binding_res;
     bool is_waves;
   } dispatch_params_;
-
-  // Actual Vulkan objects
-private:
-  VkPipeline pipeline_;
-  VkPipelineLayout layout_;
 
 private:
   uid_string uid_;
@@ -380,12 +461,13 @@ class graph_pass
 public:
   enum type 
   {
-    graph_compute_pass, graph_render_pass, none
+    graph_compute_pass, graph_render_pass, graph_transfer_pass, graph_present, none
   };
 
   graph_pass();
   graph_pass(const render_pass &);
   graph_pass(const compute_pass &);
+  graph_pass(const transfer_operation &);
 
   ~graph_pass() 
   {
@@ -393,6 +475,7 @@ public:
     {
     case graph_compute_pass: cp_.~compute_pass(); break;
     case graph_render_pass: rp_.~render_pass(); break;
+    case graph_transfer_pass: tr_.~transfer_operation(); break;
     default: break;
     }
   };
@@ -404,6 +487,7 @@ public:
     {
     case graph_compute_pass: cp_ = std::move(other.cp_); break;
     case graph_render_pass: rp_ = std::move(other.rp_); break;
+    case graph_transfer_pass: tr_ = std::move(other.tr_); break;
     default: break;
     }
 
@@ -417,6 +501,7 @@ public:
     {
     case graph_compute_pass: cp_ = std::move(other.cp_); break;
     case graph_render_pass: rp_ = std::move(other.rp_); break;
+    case graph_transfer_pass: tr_ = std::move(other.tr_); break;
     default: break;
     }
   }
@@ -424,6 +509,7 @@ public:
   type get_type();
   render_pass &get_render_pass();
   compute_pass &get_compute_pass();
+  transfer_operation &get_transfer_operation();
 
   binding &get_binding(uint32_t idx);
 
@@ -437,7 +523,10 @@ private:
   {
     compute_pass cp_;
     render_pass rp_;
+    transfer_operation tr_;
   };
+
+  friend class render_graph;
 };
 
 
@@ -672,74 +761,6 @@ private:
   friend class render_graph;
 };
 
-/************************* Transfer *******************************/
-class transfer_operation 
-{
-public:
-  enum type 
-  {
-    buffer_update, buffer_copy, buffer_copy_to_cpu, image_copy, image_blit, none
-  };
-
-  transfer_operation();
-  transfer_operation(graph_stage_ref ref, render_graph *builder);
-
-  void init_as_buffer_update(
-    graph_resource_ref buf_ref, void *data, uint32_t offset, uint32_t size);
-
-  void init_as_buffer_copy_to_cpu(
-    graph_resource_ref dst, graph_resource_ref src);
-
-  // For now, assume we blit the entire thing
-  void init_as_image_blit(graph_resource_ref src, graph_resource_ref dst);
-
-  binding &get_binding(uint32_t idx);
-
-  /* TODO
-  void init_as_buffer_copy(
-    graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
-  void init_as_image_copy(
-    graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
-  */
-
-private:
-  type type_;
-  render_graph *builder_;
-  graph_stage_ref stage_ref_;
-
-  binding *bindings_;
-
-  union 
-  {
-    struct 
-    {
-      void *data;
-      uint32_t offset;
-      uint32_t size;
-    } buffer_update_state_;
-
-    struct
-    {
-      graph_resource_ref dst, src;
-    } buffer_copy_to_cpu_;
-
-    // TODO:
-    struct 
-    {
-    } buffer_copy_state;
-
-    struct 
-    {
-    } image_copy_state;
-
-    struct 
-    {
-    } image_blit_state;
-  };
-
-  friend class render_graph;
-};
-
 
 
 /************************* Graph Builder **************************/
@@ -897,9 +918,11 @@ public:
   gpu_buffer &register_buffer(const uid_string &);
   gpu_buffer &get_buffer(const uid_string &);
 
+  compute_kernel register_compute_kernel(const char *src);
+
   // This will schedule the passes and potentially allocate and create them
-  render_pass &add_render_pass(const uid_string &);
-  compute_pass &add_compute_pass(const uid_string &);
+  render_pass &add_render_pass();
+  compute_pass &add_compute_pass();
   void add_buffer_update(
     const uid_string &, void *data, u32 offset = 0, u32 size = 0);
   void add_buffer_copy_to_cpu(
@@ -943,19 +966,19 @@ private:
   VkCommandBuffer get_command_buffer_();
 
   void prepare_pass_graph_stage_(graph_stage_ref ref);
-  void prepare_transfer_graph_stage_(graph_stage_ref ref);
+  void prepare_transfer_graph_stage_(transfer_operation &op);
 
   void execute_pass_graph_stage_(
     graph_stage_ref ref, VkPipelineStageFlags &last,
     const cmdbuf_generator::cmdbuf_info &info);
 
   void execute_transfer_graph_stage_(
-    graph_stage_ref ref, const cmdbuf_generator::cmdbuf_info &info);
+    transfer_operation &op, const cmdbuf_generator::cmdbuf_info &info);
 
   inline compute_pass &get_compute_pass_(graph_stage_ref stg) 
-    { return passes_[stg].get_compute_pass(); }
+    { return recorded_stages_[stg].get_compute_pass(); }
   inline render_pass &get_render_pass_(graph_stage_ref stg) 
-    { return passes_[stg].get_render_pass(); }
+    { return recorded_stages_[stg].get_render_pass(); }
 
   // For resources, we need to allocate them on the fly - 
   // not the case with passes
@@ -989,17 +1012,10 @@ private:
 
   inline binding &get_binding_(graph_stage_ref stg, uint32_t binding_idx) 
   {
-    if (stg.stage_type == graph_stage_ref::type::pass) 
-    {
-      if (stg == graph_stage_ref_present)
-        return present_info_.b;
-      else
-        return passes_[stg].get_binding(binding_idx); 
-    }
-    else 
-    {
-      return transfers_[stg].get_binding(binding_idx);
-    }
+    if (stg == graph_stage_ref_present)
+      return present_info_.b;
+    else
+      return recorded_stages_[stg].get_binding(binding_idx); 
   }
 
   graph_resource_ref get_current_swapchain_ref_() 
@@ -1017,20 +1033,16 @@ private:
 
   uint32_t swapchain_img_idx_;
 
-  // All existing passes that could be used
-  std::vector<graph_pass> passes_;
-  // All existing resources that could be used
   std::vector<graph_resource> resources_;
 
-  std::vector<graph_stage_ref> recorded_stages_;
+  std::vector<graph_pass> recorded_stages_;
   std::vector<graph_resource_ref> used_resources_;
-
-  std::vector<transfer_operation> transfers_;
 
   std::vector<VkCommandBuffer> free_cmdbufs_;
   std::vector<VkSemaphore> free_semaphores_;
   std::set<VkFence> free_fences_;
   std::vector<submission> submissions_;
+  std::vector<compute_kernel_state> kernels_;
 
   struct present_info 
   {
