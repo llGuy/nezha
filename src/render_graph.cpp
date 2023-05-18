@@ -45,18 +45,18 @@ render_pass::render_pass(render_graph *builder, u32 idx)
 }
 
 render_pass &render_pass::add_color_attachment(
-  const uid_string &uid, clear_color color, const image_info &info) 
+  gpu_image_ref ref, clear_color color, const image_info &info) 
 {
   uint32_t binding_id = bindings_.size();
 
   binding b = { (uint32_t)bindings_.size(), binding::type::color_attachment, 
-    uid.id, color };
+    ref, color };
 
   bindings_.push_back(b);
 
   // Get image will allocate space for the image struct if it hasn't 
   // been created yet
-  gpu_image &img = builder_->get_image_(uid.id);
+  gpu_image &img = builder_->get_image_(ref);
   img.add_usage_node_(idx_, binding_id);
   img.configure(info);
 
@@ -64,20 +64,20 @@ render_pass &render_pass::add_color_attachment(
 }
 
 render_pass &render_pass::add_depth_attachment(
-  const uid_string &uid, clear_color color, const image_info &info) 
+  gpu_image_ref ref, clear_color color, const image_info &info) 
 {
   uint32_t binding_id = bindings_.size();
 
   depth_index_ = binding_id;
 
   binding b = { (uint32_t)bindings_.size(), binding::type::depth_attachment,
-    uid.id, color };
+    ref, color };
 
   bindings_.push_back(b);
 
   // Get image will allocate space for the image struct if it hasn't been 
   // created yet
-  gpu_image &img = builder_->get_image_(uid.id);
+  gpu_image &img = builder_->get_image_(ref);
   img.add_usage_node_(idx_, binding_id);
 
   image_info info_tmp = info;
@@ -280,68 +280,68 @@ compute_pass &compute_pass::set_kernel(compute_kernel kernel)
   return *this;
 }
 
-compute_pass &compute_pass::add_sampled_image(const uid_string &uid) 
+compute_pass &compute_pass::add_sampled_image(gpu_image_ref ref) 
 {
   uint32_t binding_id = bindings_.size();
 
   binding b = { 
-    (uint32_t)bindings_.size(), binding::type::sampled_image, uid.id 
+    (uint32_t)bindings_.size(), binding::type::sampled_image, ref
   };
 
   bindings_.push_back(b);
 
   // Get image will allocate space for the image struct if it hasn't 
   // been created yet
-  gpu_image &img = builder_->get_image_(uid.id);
+  gpu_image &img = builder_->get_image_(ref);
   img.add_usage_node_(uid_.id, binding_id);
 
   return *this;
 }
 
-compute_pass &compute_pass::add_storage_image(const uid_string &uid, const image_info &i) 
+compute_pass &compute_pass::add_storage_image(gpu_image_ref ref, const image_info &i) 
 {
   uint32_t binding_id = bindings_.size();
 
   binding b = {
-    (uint32_t)bindings_.size(), binding::type::storage_image, uid.id 
+    (uint32_t)bindings_.size(), binding::type::storage_image, ref
   };
 
   bindings_.push_back(b);
 
-  gpu_image &img = builder_->get_image_(uid.id);
+  gpu_image &img = builder_->get_image_(ref);
   img.add_usage_node_(uid_.id, binding_id);
   img.configure(i);
 
   return *this;
 }
 
-compute_pass &compute_pass::add_storage_buffer(const uid_string &uid) 
+compute_pass &compute_pass::add_storage_buffer(gpu_buffer_ref ref) 
 {
   uint32_t binding_id = bindings_.size();
 
   binding b = {
-    (uint32_t)bindings_.size(), binding::type::storage_buffer, uid.id 
+    (uint32_t)bindings_.size(), binding::type::storage_buffer, ref
   };
 
   bindings_.push_back(b);
 
-  gpu_buffer &buf = builder_->get_buffer_(uid.id);
+  gpu_buffer &buf = builder_->get_buffer_(ref);
   buf.add_usage_node_(uid_.id, binding_id);
 
   return *this;
 }
 
-compute_pass &compute_pass::add_uniform_buffer(const uid_string &uid) 
+compute_pass &compute_pass::add_uniform_buffer(gpu_buffer_ref ref) 
 {
   uint32_t binding_id = bindings_.size();
 
   binding b = {
-    (uint32_t)bindings_.size(), binding::type::uniform_buffer, uid.id 
+    (uint32_t)bindings_.size(), binding::type::uniform_buffer, ref
   };
 
   bindings_.push_back(b);
 
-  gpu_buffer &buf = builder_->get_buffer_(uid.id);
+  gpu_buffer &buf = builder_->get_buffer_(ref);
   buf.add_usage_node_(uid_.id, binding_id);
 
   return *this;
@@ -370,7 +370,7 @@ compute_pass &compute_pass::dispatch(
 }
 
 compute_pass &compute_pass::dispatch_waves(
-  uint32_t wave_x, uint32_t wave_y, uint32_t wave_z, const uid_string &s) 
+  uint32_t wave_x, uint32_t wave_y, uint32_t wave_z, gpu_image_ref ref)
 {
   dispatch_params_.x = wave_x;
   dispatch_params_.y = wave_y;
@@ -378,7 +378,7 @@ compute_pass &compute_pass::dispatch_waves(
   dispatch_params_.is_waves = true;
 
   // Works for images
-  dispatch_params_.binding_res = s.id;
+  dispatch_params_.binding_res = ref;
 
   return *this;
 }
@@ -1172,9 +1172,9 @@ graph_resource_tracker::graph_resource_tracker(
 }
 
 void graph_resource_tracker::prepare_buffer_for(
-  const uid_string &uid, binding::type type, VkPipelineStageFlags stage) 
+  gpu_buffer_ref ref, binding::type type, VkPipelineStageFlags stage) 
 {
-  gpu_buffer &buf = builder_->get_buffer_(uid.id);
+  gpu_buffer &buf = builder_->get_buffer_(ref);
 
   binding b = { .utype = type };
 
@@ -1195,16 +1195,16 @@ void graph_resource_tracker::prepare_buffer_for(
   buf.last_used_ = stage;
 }
 
-gpu_buffer &graph_resource_tracker::get_buffer(const uid_string &uid) 
+gpu_buffer &graph_resource_tracker::get_buffer(gpu_buffer_ref ref)
 {
-  return builder_->get_buffer_(uid.id);
+  return builder_->get_buffer_(ref);
 }
 
 
 
 /************************* Graph Builder **************************/
 render_graph::render_graph() 
-: present_generator_(2) 
+: present_generator_(2), resources_(max_resources)
 {
 }
 
@@ -1250,9 +1250,28 @@ void render_graph::register_swapchain(const graph_swapchain_info &swp)
   // resources_.push_back();
 }
 
-gpu_buffer &render_graph::register_buffer(const uid_string &uid) 
+gpu_buffer_ref render_graph::register_buffer(const buffer_info &cfg) 
 {
-  return get_buffer_(uid.id);
+  gpu_buffer_ref ref = resources_.add();
+  graph_resource &res = resources_[ref];
+
+  new (&res) graph_resource(gpu_buffer(this));
+
+  res.get_buffer().configure(cfg);
+
+  return ref;
+}
+
+gpu_image_ref render_graph::register_image(const image_info &cfg)
+{
+  gpu_image_ref ref = resources_.add();
+  graph_resource &res = resources_[ref];
+
+  new (&res) graph_resource(gpu_image(this));
+
+  res.get_image().configure(cfg);
+
+  return ref;
 }
 
 compute_kernel render_graph::register_compute_kernel(const char *src)
@@ -1275,29 +1294,29 @@ compute_pass &render_graph::add_compute_pass()
 }
 
 void render_graph::add_buffer_update(
-  const uid_string &uid, void *data, u32 offset, u32 size) 
+  gpu_buffer_ref ref, void *data, u32 offset, u32 size) 
 {
   recorded_stages_.emplace_back(graph_pass(transfer_operation(this, recorded_stages_.size())));
   auto &transfer = recorded_stages_.back();
 
-  transfer.get_transfer_operation().init_as_buffer_update(uid.id, data, offset, size);
+  transfer.get_transfer_operation().init_as_buffer_update(ref, data, offset, size);
 }
 
 void render_graph::add_buffer_copy_to_cpu(
-  const uid_string &dst, const uid_string &src)
+  gpu_buffer_ref dst, gpu_buffer_ref src)
 {
   recorded_stages_.emplace_back(graph_pass(transfer_operation(this, recorded_stages_.size())));
   auto &transfer = recorded_stages_.back();
 
-  transfer.get_transfer_operation().init_as_buffer_copy_to_cpu(dst.id, src.id);
+  transfer.get_transfer_operation().init_as_buffer_copy_to_cpu(dst, src);
 }
 
-void render_graph::add_image_blit(const uid_string &src, const uid_string &dst) 
+void render_graph::add_image_blit(gpu_image_ref dst, gpu_image_ref src) 
 {
   recorded_stages_.emplace_back(graph_pass(transfer_operation(this, recorded_stages_.size())));
   auto &transfer = recorded_stages_.back();
 
-  transfer.get_transfer_operation().init_as_image_blit(src.id, dst.id);
+  transfer.get_transfer_operation().init_as_image_blit(src, dst);
 }
 
 void render_graph::begin() 
@@ -1978,15 +1997,16 @@ pending_workload render_graph::submit(job *jobs, int count,
   return ret;
 }
 
-gpu_buffer &render_graph::get_buffer(const uid_string &uid)
+gpu_buffer &render_graph::get_buffer(gpu_buffer_ref ref)
 {
-  return get_buffer_(uid.id);
+  return get_buffer_(ref);
 }
 
-void render_graph::present(const uid_string &res_uid) 
+void render_graph::present(gpu_image_ref ref) 
 {
   assert(false);
 
+#if 0
   present_info_.to_present = res_uid.id;
   present_info_.is_active = true;
 
@@ -1994,7 +2014,8 @@ void render_graph::present(const uid_string &res_uid)
   img.reference_ = graph_stage_ref_present;
   img.add_usage_node_(graph_stage_ref_present, 0);
 
-  // recorded_stages_.push_back(graph_stage_ref_present);
+  recorded_stages_.push_back(graph_stage_ref_present);
+#endif
 }
 
 graph_resource_tracker render_graph::get_resource_tracker() 

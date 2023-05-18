@@ -5,7 +5,8 @@
  * - Recycle semaphores/fences/commandbuffers
  * - Make sure that we can add multiple instances of a compute shader. 
  * - Job synchronization
- * - More async stuff */
+ * - More async stuff
+ * - Device memory cleanups! */
 
 
 #include <set>
@@ -14,6 +15,7 @@
 #include <assert.h>
 #include "string.hpp"
 #include "heap_array.hpp"
+#include "dynamic_array.hpp"
 #include <vulkan/vulkan.h>
 
 namespace nz
@@ -23,40 +25,8 @@ namespace nz
 using graph_resource_ref = uint32_t;
 using graph_stage_ref = uint32_t;
 
-#if 0
-// ID of a pass stage
-struct graph_stage_ref 
-{
-  enum type 
-  {
-    pass,
-    transfer,
-    none
-  };
-
-  uint32_t stage_type : 2;
-  uint32_t stage_idx : 30;
-
-  graph_stage_ref() = default;
-
-  graph_stage_ref(uint32_t idx) 
-  {
-    stage_type = type::pass;
-    stage_idx = idx;
-  }
-
-  graph_stage_ref(type t, uint32_t idx) 
-  {
-    stage_type = t;
-    stage_idx = idx;
-  }
-
-  operator uint32_t() 
-  {
-    return stage_idx;
-  }
-};
-#endif
+using gpu_buffer_ref = u32;
+using gpu_image_ref = u32;
 
 constexpr uint32_t invalid_graph_ref = 0xFFFFFFF;
 constexpr uint32_t graph_stage_ref_present = 0xBADC0FE;
@@ -299,12 +269,12 @@ public:
 
   // By default, the render pass won't clear the target
   render_pass &add_color_attachment(
-    const uid_string &uid, 
+    gpu_image_ref image_ref, 
     clear_color color = {-1.0f}, 
     const image_info &info = {});
 
   render_pass &add_depth_attachment(
-    const uid_string &uid,
+    gpu_image_ref image_ref,
     clear_color color = {-1.0f}, 
     const image_info &info = {});
 
@@ -400,17 +370,17 @@ public:
 
   // Whenever we add a resource here, we need to update the linked list
   // of used nodes that start with the resource itself
-  compute_pass &add_sampled_image(const uid_string &);
-  compute_pass &add_storage_image(const uid_string &, const image_info &i = {});
-  compute_pass &add_storage_buffer(const uid_string &);
-  compute_pass &add_uniform_buffer(const uid_string &);
+  compute_pass &add_sampled_image(gpu_image_ref);
+  compute_pass &add_storage_image(gpu_image_ref, const image_info &i = {});
+  compute_pass &add_storage_buffer(gpu_image_ref);
+  compute_pass &add_uniform_buffer(gpu_image_ref);
 
   // Configures the dispatch with given dimensions
   compute_pass &dispatch(uint32_t count_x, uint32_t count_y, uint32_t count_z);
   // Configures the dispatch with the size of each wave - specify which image 
   // to get resolution from
   compute_pass &dispatch_waves(
-    uint32_t wave_x, uint32_t wave_y, uint32_t wave_z, const uid_string &);
+    uint32_t wave_x, uint32_t wave_y, uint32_t wave_z, gpu_image_ref);
   // TODO: Support indirect
 
 private:
@@ -824,10 +794,10 @@ public:
 
   // Prepare resources for certain usages
   void prepare_buffer_for(
-    const uid_string &, binding::type type, VkPipelineStageFlags stage);
+    gpu_buffer_ref, binding::type type, VkPipelineStageFlags stage);
 
   // Access the resources directly
-  gpu_buffer &get_buffer(const uid_string &uid);
+  gpu_buffer &get_buffer(gpu_buffer_ref);
 
 private:
   render_graph *builder_;
@@ -914,20 +884,24 @@ public:
 
   // Register swapchain targets in the resources array
   void register_swapchain(const graph_swapchain_info &swp);
+
   // Usage of this buffer
-  gpu_buffer &register_buffer(const uid_string &);
-  gpu_buffer &get_buffer(const uid_string &);
+  gpu_buffer_ref register_buffer(const buffer_info &cfg);
+  gpu_buffer &get_buffer(gpu_buffer_ref);
+
+  gpu_image_ref register_image(const image_info &cfg);
+  gpu_image &get_image(gpu_image_ref);
 
   compute_kernel register_compute_kernel(const char *src);
 
   // This will schedule the passes and potentially allocate and create them
   render_pass &add_render_pass();
   compute_pass &add_compute_pass();
-  void add_buffer_update(
-    const uid_string &, void *data, u32 offset = 0, u32 size = 0);
-  void add_buffer_copy_to_cpu(
-    const uid_string &dst, const uid_string &src);
-  void add_image_blit(const uid_string &src, const uid_string &dst);
+
+  // Some transfer operations
+  void add_buffer_update(gpu_buffer_ref, void *data, u32 offset = 0, u32 size = 0);
+  void add_buffer_copy_to_cpu(gpu_buffer_ref dst, gpu_buffer_ref src);
+  void add_image_blit(gpu_image_ref src, gpu_image_ref dst);
 
   // Start recording a set of passes / commands
   void begin();
@@ -954,7 +928,7 @@ public:
     job *dependencies, int dependency_count);
 
   // Make sure that this image is what gets presented to the screen
-  void present(const uid_string &);
+  void present(gpu_image_ref);
 
   graph_resource_tracker get_resource_tracker();
 
@@ -980,35 +954,12 @@ private:
   inline render_pass &get_render_pass_(graph_stage_ref stg) 
     { return recorded_stages_[stg].get_render_pass(); }
 
-  // For resources, we need to allocate them on the fly - 
-  // not the case with passes
-  inline graph_resource &get_resource_(graph_resource_ref id) 
-  {
-    if (resources_.size() <= id)
-      resources_.resize(id + 1);
-    return resources_[id];
-  }
-
-  inline gpu_buffer &get_buffer_(graph_resource_ref id) 
-  { 
-    auto &res = get_resource_(id);
-    if (res.get_type() == graph_resource::type::none)
-      new (&res) graph_resource(gpu_buffer(this));
-    return res.get_buffer();
-  }
-
-  inline gpu_image &get_image_(graph_resource_ref id) 
-  {
-    if (id == graph_stage_ref_present) 
-    {
-      return get_image_(get_current_swapchain_ref_());
-    }
-
-    auto &res = get_resource_(id);
-    if (res.get_type() == graph_resource::type::none)
-      new (&res) graph_resource(gpu_image(this));
-    return res.get_image();
-  }
+  inline graph_resource &get_resource_(u32 ref)
+    { return resources_[ref]; }
+  inline gpu_buffer &get_buffer_(u32 ref)
+    { return resources_[ref].get_buffer(); }
+  inline gpu_image &get_image_(u32 ref)
+    { return resources_[ref].get_image(); }
 
   inline binding &get_binding_(graph_stage_ref stg, uint32_t binding_idx) 
   {
@@ -1029,11 +980,13 @@ public:
 
 private:
   static constexpr uint32_t swapchain_img_max_count = 5;
+  static constexpr uint32_t max_resources = 1000;
   static inline uid_string swapchain_uids[swapchain_img_max_count] = {};
 
   uint32_t swapchain_img_idx_;
 
-  std::vector<graph_resource> resources_;
+  // std::vector<graph_resource> resources_;
+  dynamic_array<graph_resource> resources_;
 
   std::vector<graph_pass> recorded_stages_;
   std::vector<graph_resource_ref> used_resources_;
