@@ -71,7 +71,7 @@ private:
 
   compute_kernel kernel_;
 
-  std::vector<binding> bindings_;
+  std::vector<binding> *bindings_;
 
   struct 
   {

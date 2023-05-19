@@ -65,7 +65,7 @@ private:
 private:
   render_graph *builder_;
 
-  std::vector<binding> bindings_;
+  std::vector<binding> *bindings_;
   // -1 if there is no depth attachment
   s32 depth_index_;
 

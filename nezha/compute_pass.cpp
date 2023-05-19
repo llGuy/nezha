@@ -24,13 +24,13 @@ compute_pass &compute_pass::set_kernel(compute_kernel kernel)
 
 compute_pass &compute_pass::add_sampled_image(gpu_image_ref ref) 
 {
-  uint32_t binding_id = bindings_.size();
+  uint32_t binding_id = bindings_->size();
 
   binding b = { 
-    (uint32_t)bindings_.size(), binding::type::sampled_image, ref
+    (uint32_t)bindings_->size(), binding::type::sampled_image, ref
   };
 
-  bindings_.push_back(b);
+  bindings_->push_back(b);
 
   // Get image will allocate space for the image struct if it hasn't 
   // been created yet
@@ -42,13 +42,13 @@ compute_pass &compute_pass::add_sampled_image(gpu_image_ref ref)
 
 compute_pass &compute_pass::add_storage_image(gpu_image_ref ref, const image_info &i) 
 {
-  uint32_t binding_id = bindings_.size();
+  uint32_t binding_id = bindings_->size();
 
   binding b = {
-    (uint32_t)bindings_.size(), binding::type::storage_image, ref
+    (uint32_t)bindings_->size(), binding::type::storage_image, ref
   };
 
-  bindings_.push_back(b);
+  bindings_->push_back(b);
 
   gpu_image &img = builder_->get_image_(ref);
   img.add_usage_node_(uid_.id, binding_id);
@@ -59,13 +59,13 @@ compute_pass &compute_pass::add_storage_image(gpu_image_ref ref, const image_inf
 
 compute_pass &compute_pass::add_storage_buffer(gpu_buffer_ref ref) 
 {
-  uint32_t binding_id = bindings_.size();
+  uint32_t binding_id = bindings_->size();
 
   binding b = {
-    (uint32_t)bindings_.size(), binding::type::storage_buffer, ref
+    (uint32_t)bindings_->size(), binding::type::storage_buffer, ref
   };
 
-  bindings_.push_back(b);
+  bindings_->push_back(b);
 
   gpu_buffer &buf = builder_->get_buffer_(ref);
   buf.add_usage_node_(uid_.id, binding_id);
@@ -75,13 +75,13 @@ compute_pass &compute_pass::add_storage_buffer(gpu_buffer_ref ref)
 
 compute_pass &compute_pass::add_uniform_buffer(gpu_buffer_ref ref) 
 {
-  uint32_t binding_id = bindings_.size();
+  uint32_t binding_id = bindings_->size();
 
   binding b = {
-    (uint32_t)bindings_.size(), binding::type::uniform_buffer, ref
+    (uint32_t)bindings_->size(), binding::type::uniform_buffer, ref
   };
 
-  bindings_.push_back(b);
+  bindings_->push_back(b);
 
   gpu_buffer &buf = builder_->get_buffer_(ref);
   buf.add_usage_node_(uid_.id, binding_id);
@@ -129,7 +129,7 @@ void compute_pass::reset_()
 {
   // Should keep capacity the same to no reallocs after the first time 
   // adding the compute pass
-  bindings_.clear();
+  bindings_->clear();
 }
 
 void compute_pass::create_(compute_kernel_state &state)
@@ -141,14 +141,14 @@ void compute_pass::create_(compute_kernel_state &state)
 
   // Pipeline layout TODO: Support descriptors with count>1
   VkDescriptorSetLayout *layouts = stack_alloc(
-    VkDescriptorSetLayout, bindings_.size());
-  for (u32 i = 0; i < bindings_.size(); ++i)
+    VkDescriptorSetLayout, bindings_->size());
+  for (u32 i = 0; i < bindings_->size(); ++i)
     layouts[i] = get_descriptor_set_layout(
-      bindings_[i].get_descriptor_type(), 1);
+      (*bindings_)[i].get_descriptor_type(), 1);
 
   VkPipelineLayoutCreateInfo pipeline_layout_info = {};
   pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipeline_layout_info.setLayoutCount = bindings_.size();
+  pipeline_layout_info.setLayoutCount = bindings_->size();
   pipeline_layout_info.pSetLayouts = layouts;
 
   if (push_constant_size_) 
@@ -195,17 +195,17 @@ void compute_pass::issue_commands_(VkCommandBuffer cmdbuf, compute_kernel_state 
   // Loop through all bindings (make sure images and buffers have proper 
   // barriers issued for them) This is a very rough estimate - TODO: Make sure 
   // to have exact number of image bindings
-  auto *img_barriers = bump_mem_alloc<VkImageMemoryBarrier>(bindings_.size());
-  auto *buf_barriers = bump_mem_alloc<VkBufferMemoryBarrier>(bindings_.size());
+  auto *img_barriers = bump_mem_alloc<VkImageMemoryBarrier>(bindings_->size());
+  auto *buf_barriers = bump_mem_alloc<VkBufferMemoryBarrier>(bindings_->size());
 
   u32 img_barrier_count = 0, buf_barrier_count = 0;
 
   VkDescriptorSet *descriptor_sets = bump_mem_alloc<VkDescriptorSet>(
-    bindings_.size());
+    bindings_->size());
 
   int i = 0;
   // Once all barriers have been issued, we can dispatch the pipeline!
-  for (auto &b : bindings_) 
+  for (auto &b : *bindings_)
   {
     auto &res = builder_->get_resource_(b.rref);
 
@@ -274,7 +274,7 @@ void compute_pass::issue_commands_(VkCommandBuffer cmdbuf, compute_kernel_state 
 
   vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, state.pipeline);
   vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, state.layout, 
-    0, bindings_.size(), descriptor_sets, 0, nullptr);
+    0, bindings_->size(), descriptor_sets, 0, nullptr);
 
   if (push_constant_size_)
     vkCmdPushConstants(cmdbuf, state.layout, VK_SHADER_STAGE_COMPUTE_BIT, 

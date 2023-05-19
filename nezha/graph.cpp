@@ -47,20 +47,20 @@ compute_kernel render_graph::register_compute_kernel(const char *src)
 
 render_pass &render_graph::add_render_pass() 
 {
-  recorded_stages_.emplace_back(graph_pass(render_pass(this, recorded_stages_.size())));
+  recorded_stages_.emplace_back(render_pass(this, recorded_stages_.size()));
   return recorded_stages_.back().get_render_pass();
 }
 
 compute_pass &render_graph::add_compute_pass() 
 {
-  recorded_stages_.emplace_back(graph_pass(compute_pass(this, recorded_stages_.size())));
+  recorded_stages_.emplace_back(compute_pass(this, recorded_stages_.size()));
   return recorded_stages_.back().get_compute_pass();
 }
 
 void render_graph::add_buffer_update(
   gpu_buffer_ref ref, void *data, u32 offset, u32 size) 
 {
-  recorded_stages_.emplace_back(graph_pass(transfer_operation(this, recorded_stages_.size())));
+  recorded_stages_.emplace_back(transfer_operation(this, recorded_stages_.size()));
   auto &transfer = recorded_stages_.back();
 
   transfer.get_transfer_operation().init_as_buffer_update(ref, data, offset, size);
@@ -69,7 +69,7 @@ void render_graph::add_buffer_update(
 void render_graph::add_buffer_copy_to_cpu(
   gpu_buffer_ref dst, gpu_buffer_ref src)
 {
-  recorded_stages_.emplace_back(graph_pass(transfer_operation(this, recorded_stages_.size())));
+  recorded_stages_.emplace_back(transfer_operation(this, recorded_stages_.size()));
   auto &transfer = recorded_stages_.back();
 
   transfer.get_transfer_operation().init_as_buffer_copy_to_cpu(dst, src);
@@ -77,7 +77,7 @@ void render_graph::add_buffer_copy_to_cpu(
 
 void render_graph::add_image_blit(gpu_image_ref dst, gpu_image_ref src) 
 {
-  recorded_stages_.emplace_back(graph_pass(transfer_operation(this, recorded_stages_.size())));
+  recorded_stages_.emplace_back(transfer_operation(this, recorded_stages_.size()));
   auto &transfer = recorded_stages_.back();
 
   transfer.get_transfer_operation().init_as_image_blit(src, dst);
@@ -122,13 +122,13 @@ void render_graph::begin()
       case graph_pass::type::graph_compute_pass:
       {
         compute_pass &cp = stg.get_compute_pass();
-        cp.bindings_.clear();
+        cp.bindings_->clear();
       } break;
 
       case graph_pass::type::graph_render_pass:
       {
         render_pass &rp = stg.get_render_pass();
-        rp.bindings_.clear();
+        rp.bindings_->clear();
       } break;
 
       case graph_pass::type::graph_transfer_pass:
@@ -155,7 +155,7 @@ void render_graph::prepare_pass_graph_stage_(graph_stage_ref stg)
     compute_pass &cp = recorded_stages_[stg].get_compute_pass();
 
     // Loop through each binding
-    for (auto &bind : cp.bindings_) {
+    for (auto &bind : *(cp.bindings_)) {
       auto &res = get_resource_(bind.rref);
       switch (res.get_type()) {
         case graph_resource::type::graph_image: 
@@ -177,7 +177,7 @@ void render_graph::prepare_pass_graph_stage_(graph_stage_ref stg)
     render_pass &rp = recorded_stages_[stg].get_render_pass();
 
     // Loop through each binding
-    for (auto &bind : rp.bindings_) {
+    for (auto &bind : *(rp.bindings_)) {
       auto &res = get_resource_(bind.rref);
       switch (res.get_type()) {
         case graph_resource::type::graph_image: 
@@ -333,7 +333,7 @@ void render_graph::execute_transfer_graph_stage_(
   {
   case transfer_operation::type::buffer_update: 
   {
-    binding &b = op.bindings_[0];
+    binding &b = (*op.bindings_)[0];
     gpu_buffer &buf = get_buffer_(b.rref);
 
     VkBufferMemoryBarrier barrier = 
@@ -361,8 +361,8 @@ void render_graph::execute_transfer_graph_stage_(
 
   case transfer_operation::type::buffer_copy_to_cpu:
   {
-    binding &dst_binding = op.bindings_[0];
-    binding &src_binding = op.bindings_[1];
+    binding &dst_binding = (*op.bindings_)[0];
+    binding &src_binding = (*op.bindings_)[1];
 
     gpu_buffer &dst = get_buffer_(dst_binding.rref);
     gpu_buffer &src = get_buffer_(src_binding.rref);
@@ -404,8 +404,8 @@ void render_graph::execute_transfer_graph_stage_(
 
   case transfer_operation::type::image_blit: 
   {
-    gpu_image &src = get_image_(op.bindings_[0].rref);
-    gpu_image &dst = get_image_(op.bindings_[1].rref);
+    gpu_image &src = get_image_((*op.bindings_)[0].rref);
+    gpu_image &dst = get_image_((*op.bindings_)[1].rref);
 
     // Transition layouts
     VkImageMemoryBarrier barrier = 
@@ -413,9 +413,9 @@ void render_graph::execute_transfer_graph_stage_(
       .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
       .image = src.get_().image_,
       .oldLayout = src.get_().current_layout_,
-      .newLayout = op.bindings_[0].get_image_layout(),
+      .newLayout = (*op.bindings_)[0].get_image_layout(),
       .srcAccessMask = src.get_().current_access_,
-      .dstAccessMask = op.bindings_[0].get_image_access(),
+      .dstAccessMask = (*op.bindings_)[0].get_image_access(),
       .subresourceRange.aspectMask = src.get_().aspect_,
       // TODO: Support non-hardcoded values for this
       .subresourceRange.baseArrayLayer = 0,
@@ -429,9 +429,9 @@ void render_graph::execute_transfer_graph_stage_(
 
     barrier.image = dst.get_().image_;
     barrier.oldLayout = dst.get_().current_layout_;
-    barrier.newLayout = op.bindings_[1].get_image_layout();
+    barrier.newLayout = (*op.bindings_)[1].get_image_layout();
     barrier.srcAccessMask = dst.get_().current_access_;
-    barrier.dstAccessMask = op.bindings_[1].get_image_access();
+    barrier.dstAccessMask = (*op.bindings_)[1].get_image_access();
 
     vkCmdPipelineBarrier(info.cmdbuf, dst.get_().last_used_,
       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
@@ -454,12 +454,12 @@ void render_graph::execute_transfer_graph_stage_(
       }
     };
 
-    src.get_().current_layout_ = op.bindings_[0].get_image_layout();
-    src.get_().current_access_ = op.bindings_[0].get_image_access();
+    src.get_().current_layout_ = (*op.bindings_)[0].get_image_layout();
+    src.get_().current_access_ = (*op.bindings_)[0].get_image_access();
     src.get_().last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
 
-    dst.get_().current_layout_ = op.bindings_[1].get_image_layout();
-    dst.get_().current_access_ = op.bindings_[1].get_image_access();
+    dst.get_().current_layout_ = (*op.bindings_)[1].get_image_layout();
+    dst.get_().current_access_ = (*op.bindings_)[1].get_image_access();
     dst.get_().last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
 
     vkCmdBlitImage(

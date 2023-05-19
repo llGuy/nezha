@@ -31,6 +31,9 @@ public:
     case graph_transfer_pass: tr_.~transfer_operation(); break;
     default: break;
     }
+
+    if (bindings_)
+      delete bindings_;
   };
 
   graph_pass &operator=(graph_pass &&other) 
@@ -38,13 +41,16 @@ public:
     type_ = other.type_;
     switch (type_) 
     {
-    case graph_compute_pass: cp_ = std::move(other.cp_); break;
-    case graph_render_pass: rp_ = std::move(other.rp_); break;
-    case graph_transfer_pass: tr_ = std::move(other.tr_); break;
+    case graph_compute_pass: cp_ = other.cp_; break;
+    case graph_render_pass: rp_ = other.rp_; break;
+    case graph_transfer_pass: tr_ = other.tr_; break;
     default: break;
     }
 
     return *this;
+
+    bindings_ = other.bindings_;
+    other.bindings_ = nullptr;
   }
 
   graph_pass(graph_pass &&other) 
@@ -52,11 +58,14 @@ public:
     type_ = other.type_;
     switch (type_) 
     {
-    case graph_compute_pass: cp_ = std::move(other.cp_); break;
-    case graph_render_pass: rp_ = std::move(other.rp_); break;
-    case graph_transfer_pass: tr_ = std::move(other.tr_); break;
+    case graph_compute_pass: cp_ = other.cp_; break;
+    case graph_render_pass: rp_ = other.rp_; break;
+    case graph_transfer_pass: tr_ = other.tr_; break;
     default: break;
     }
+
+    bindings_ = other.bindings_;
+    other.bindings_ = nullptr;
   }
 
   type get_type();
@@ -71,6 +80,8 @@ public:
 private:
   // For uninitialized graph passes, type_ is none
   type type_;
+
+  std::vector<binding> *bindings_;
 
   union 
   {

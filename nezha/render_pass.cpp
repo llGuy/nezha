@@ -15,12 +15,12 @@ render_pass::render_pass(render_graph *builder, u32 idx)
 render_pass &render_pass::add_color_attachment(
   gpu_image_ref ref, clear_color color, const image_info &info) 
 {
-  uint32_t binding_id = bindings_.size();
+  uint32_t binding_id = bindings_->size();
 
-  binding b = { (uint32_t)bindings_.size(), binding::type::color_attachment, 
+  binding b = { (uint32_t)bindings_->size(), binding::type::color_attachment, 
     ref, color };
 
-  bindings_.push_back(b);
+  bindings_->push_back(b);
 
   // Get image will allocate space for the image struct if it hasn't 
   // been created yet
@@ -34,14 +34,14 @@ render_pass &render_pass::add_color_attachment(
 render_pass &render_pass::add_depth_attachment(
   gpu_image_ref ref, clear_color color, const image_info &info) 
 {
-  uint32_t binding_id = bindings_.size();
+  uint32_t binding_id = bindings_->size();
 
   depth_index_ = binding_id;
 
-  binding b = { (uint32_t)bindings_.size(), binding::type::depth_attachment,
+  binding b = { (uint32_t)bindings_->size(), binding::type::depth_attachment,
     ref, color };
 
-  bindings_.push_back(b);
+  bindings_->push_back(b);
 
   // Get image will allocate space for the image struct if it hasn't been 
   // created yet
@@ -64,7 +64,7 @@ render_pass &render_pass::set_render_area(VkRect2D rect)
 
 void render_pass::reset_() 
 {
-  bindings_.clear();
+  bindings_->clear();
   depth_index_ = -1;
   rect_ = {};
   prepare_commands_proc_ = nullptr;
@@ -75,7 +75,7 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf)
   if (prepare_commands_proc_)
     prepare_commands_proc_({ cmdbuf, builder_, prepare_commands_aux_ });
 
-  uint32_t color_attachment_count = (uint32_t)(bindings_.size() - 
+  uint32_t color_attachment_count = (uint32_t)(bindings_->size() - 
     (depth_index_ == -1 ? 0 : 1));
 
   auto *color_attachments = bump_mem_alloc<VkRenderingAttachmentInfoKHR>(
@@ -83,13 +83,13 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf)
   auto *depth_attachment = (depth_index_ == -1 ? 
     nullptr : bump_mem_alloc<VkRenderingAttachmentInfoKHR>());
 
-  auto *img_barriers = bump_mem_alloc<VkImageMemoryBarrier>(bindings_.size());
+  auto *img_barriers = bump_mem_alloc<VkImageMemoryBarrier>(bindings_->size());
 
-  for (int b_idx = 0, c_idx = 0; b_idx < bindings_.size(); ++b_idx) 
+  for (int b_idx = 0, c_idx = 0; b_idx < bindings_->size(); ++b_idx) 
   {
     if (b_idx == depth_index_) 
     {
-      binding &b = bindings_[b_idx];
+      binding &b = (*bindings_)[b_idx];
 
       gpu_image &img = builder_->get_image_(b.rref);
 
@@ -132,7 +132,7 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf)
     }
     else 
     {
-      binding &b = bindings_[b_idx];
+      binding &b = (*bindings_)[b_idx];
 
       gpu_image &img = builder_->get_image_(b.rref);
 
@@ -184,7 +184,7 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf)
 
   if (rect_.extent.width == 0) 
   {
-    gpu_image &img = builder_->get_image_(bindings_[0].rref);
+    gpu_image &img = builder_->get_image_((*bindings_)[0].rref);
 
     rect_.offset = {};
     rect_.extent = { img.get_().extent_.width, img.get_().extent_.height };

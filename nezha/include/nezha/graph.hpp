@@ -41,9 +41,6 @@ namespace nz
 class render_graph 
 {
 public:
-  render_graph();
-
-
   /* REGISTER_# functions. */
   gpu_buffer_ref register_buffer(const buffer_info &cfg);
   gpu_image_ref  register_image(const image_info &cfg);
@@ -82,6 +79,9 @@ public:
   inline pending_workload submit(job &job);
   pending_workload        submit(job *jobs, int count, job *dependencies, int dependency_count);
 
+
+public:
+  render_graph();
 
 private:
   class submission

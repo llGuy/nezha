@@ -2,7 +2,6 @@
 
 #include <nezha/log.hpp>
 #include <nezha/graph.hpp>
-#include <nezha/bump_alloc.hpp>
 #include <nezha/gpu_context.hpp>
 
 struct graph_state
@@ -66,8 +65,6 @@ nz::job record_second_job(nz::render_graph &graph, const graph_state &state)
 
 int main(int argc, char **argv) 
 {
-  nz::init_bump_allocator(nz::megabytes(10));
-
   /* Initialize API */
   nz::init_gpu_context({ .create_surface = false });
   nz::render_graph graph;
@@ -79,8 +76,8 @@ int main(int argc, char **argv)
     .input_size = INPUT_SIZE,
     .input_buffer = graph.register_buffer({ .size = INPUT_SIZE }),
     .output_buffer = graph.register_buffer({ .size = INPUT_SIZE }),
-    .init_kernel = graph.register_compute_kernel("fill_random_kernel"),
-    .double_kernel = graph.register_compute_kernel("compute_random_kernel")
+    .init_kernel = graph.register_compute_kernel("kernel_iota"),
+    .double_kernel = graph.register_compute_kernel("kernel_double")
   };
 
   nz::job job1 = record_first_job(graph, state);

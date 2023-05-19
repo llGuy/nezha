@@ -23,8 +23,7 @@ void transfer_operation::init_as_buffer_update(
   type_ = type::buffer_update;
   binding b = { 0, binding::type::buffer_transfer_dst, buf_ref };
 
-  bindings_ = bump_mem_alloc<binding>();
-  *bindings_ = b;
+  bindings_->push_back(b);
 
   buffer_update_state_.data = data;
   buffer_update_state_.offset = offset;
@@ -46,9 +45,8 @@ void transfer_operation::init_as_buffer_copy_to_cpu(
   binding b0 = { 0, binding::type::buffer_transfer_dst, dst };
   binding b1 = { 1, binding::type::buffer_transfer_dst, src };
 
-  bindings_ = bump_mem_alloc<binding>(2);
-  bindings_[0] = b0;
-  bindings_[1] = b1;
+  bindings_->push_back(b0);
+  bindings_->push_back(b1);
 
   buffer_copy_to_cpu_.dst = dst;
   buffer_copy_to_cpu_.dst = src;
@@ -70,9 +68,8 @@ void transfer_operation::init_as_image_blit(
   binding b_src = { 0, binding::type::image_transfer_src, src };
   binding b_dst = { 1, binding::type::image_transfer_dst, dst };
 
-  bindings_ = bump_mem_alloc<binding>(2);
-  bindings_[0] = b_src;
-  bindings_[1] = b_dst;
+  bindings_->push_back(b_src);
+  bindings_->push_back(b_dst);
 
   gpu_image &src_img = builder_->get_image_(src);
   src_img.add_usage_node_(idx_, 0);
@@ -83,7 +80,7 @@ void transfer_operation::init_as_image_blit(
 
 binding &transfer_operation::get_binding(uint32_t idx) 
 {
-  return bindings_[idx];
+  return (*bindings_)[idx];
 }
   
 }

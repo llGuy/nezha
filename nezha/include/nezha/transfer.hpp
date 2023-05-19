@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include <nezha/types.hpp>
 #include <nezha/binding.hpp>
 
@@ -47,9 +48,9 @@ private:
   // Index of this stage in the recorded stages vector in render_graph
   u32 idx_;
 
-  binding *bindings_;
+  std::vector<binding> *bindings_;
 
-  union 
+  union
   {
     struct 
     {
@@ -78,6 +79,7 @@ private:
   };
 
   friend class render_graph;
+  friend class graph_pass;
 };
 
 
