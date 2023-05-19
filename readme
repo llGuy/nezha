@@ -5,6 +5,7 @@ Dependencies:
 - Vulkan
 
 Directory structure:
+- ext/   -> Dependencies (other than Vulkan) - not all are in use right now
 - nezha/ -> GPU computation graph framework (static library)
-- frontends/ -> Each subdirectory builds to an exec (for instance, editor)
-- backends/ -> Builds to dynamic libraries
+- res/   -> All compute kernels / shaders
+- src/   -> The model we are working on
