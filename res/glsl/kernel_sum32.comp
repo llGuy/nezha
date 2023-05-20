@@ -1,0 +1,49 @@
+#version 450
+
+
+#include "nezha.glsl"
+
+
+/* On the machine we are writing this on, subgroup size is 32. */
+layout (local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+
+BEGIN_SEND_DATA()
+  uint input_size;
+
+  /* If depth is 0, we are summing over all elements.
+   * If depth is 1, we are summing over all elements separated by 32,
+   * If depth is 2, we are summing over all elements separated by 32^2,
+   * ... */
+  uint depth;
+
+  /* This is just the 32^depth. */
+  uint depth_exp;
+END_SEND_DATA(sum_info);
+
+
+BEGIN_STORAGE_BUFFER(0, 0, input_data)
+  float data[]; /* Array of N elements. */
+END_STORAGE_BUFFER(uinput);
+
+
+void main()
+{
+  /* The index of the invocation ( possible values are 0, 1, 2, 3, ... N ) */
+  uint invocation = gl_GlobalInvocationID.x;
+
+  /* The index of the invocation inside the subgroup ( possible values are 0, 1, 2, ... 31 ) */
+  uint batch_local_id = invocation % gl_SubgroupSize.x;
+
+
+
+  /* Perform sum over 32 elements in one instruction! (line 46) */
+  uint array_idx = invocation * sum_info.depth_exp;
+  float array_value = uinput.data[array_idx];
+  float sum32 = subgroupAdd(array_value);
+
+  
+  /* Save result back to the array. */
+  if (batch_local_id == 0)
+    uinput.data[invocation * sum_info.depth_exp] = sum32;
+}

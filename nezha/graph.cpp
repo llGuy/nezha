@@ -67,12 +67,12 @@ void render_graph::add_buffer_update(
 }
 
 void render_graph::add_buffer_copy_to_cpu(
-  gpu_buffer_ref dst, gpu_buffer_ref src)
+  gpu_buffer_ref dst, gpu_buffer_ref src, u32 dst_offset, const range &rng)
 {
   recorded_stages_.emplace_back(transfer_operation(this, recorded_stages_.size()));
   auto &transfer = recorded_stages_.back();
 
-  transfer.get_transfer_operation().init_as_buffer_copy_to_cpu(dst, src);
+  transfer.get_transfer_operation().init_as_buffer_copy_to_cpu(dst, src, dst_offset, rng);
 }
 
 void render_graph::add_image_blit(gpu_image_ref dst, gpu_image_ref src) 
@@ -361,6 +361,9 @@ void render_graph::execute_transfer_graph_stage_(
 
   case transfer_operation::type::buffer_copy_to_cpu:
   {
+    uint32_t dst_base = op.buffer_copy_to_cpu_.dst_offset;
+    range src_rng = op.buffer_copy_to_cpu_.src_range;
+
     binding &dst_binding = (*op.bindings_)[0];
     binding &src_binding = (*op.bindings_)[1];
 
@@ -373,24 +376,27 @@ void render_graph::execute_transfer_graph_stage_(
       .buffer = dst.buffer_,
       .srcAccessMask = dst.current_access_,
       .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-      .offset = 0,
-      .size = dst.size_
+      .offset = dst_base,
+      .size = src_rng.size
     };
+
+    vkCmdPipelineBarrier(info.cmdbuf, dst.last_used_,
+      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &dst_barrier, 0, nullptr);
 
     auto src_barrier = dst_barrier;
     src_barrier.buffer = src.buffer_;
     src_barrier.srcAccessMask = src.current_access_;
     src_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    src_barrier.offset = src_rng.offset;
+    src_barrier.size = src_rng.size;
 
-    vkCmdPipelineBarrier(info.cmdbuf, dst.last_used_,
-      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &dst_barrier, 0, nullptr);
     vkCmdPipelineBarrier(info.cmdbuf, src.last_used_,
       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &src_barrier, 0, nullptr);
 
     VkBufferCopy region = {
-      .size = dst.size_,
-      .srcOffset = 0,
-      .dstOffset = 0
+      .size = src_rng.size,
+      .srcOffset = src_rng.offset,
+      .dstOffset = dst_base
     };
 
     vkCmdCopyBuffer(info.cmdbuf, src.buffer_, dst.buffer_, 1, &region);

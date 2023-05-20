@@ -39,4 +39,16 @@ void sleep(float t_s)
     std::chrono::milliseconds((uint32_t)(t_s * 1000.0f)));
 }
 
+time_stamp current_time()
+{
+  return std::chrono::high_resolution_clock::now();
+}
+
+float time_difference(time_stamp end, time_stamp start)
+{
+  std::chrono::duration<float> seconds = end - start;
+  float delta = seconds.count();
+  return (float)delta;
+}
+
 }

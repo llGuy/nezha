@@ -57,7 +57,7 @@ public:
   render_pass  &add_render_pass();
   compute_pass &add_compute_pass();
   void          add_buffer_update(gpu_buffer_ref, void *data, u32 offset = 0, u32 size = 0);
-  void          add_buffer_copy_to_cpu(gpu_buffer_ref dst, gpu_buffer_ref src);
+  void          add_buffer_copy_to_cpu(gpu_buffer_ref dst, gpu_buffer_ref src, u32 dst_offset, const range &rng);
   void          add_image_blit(gpu_image_ref src, gpu_image_ref dst);
 
 

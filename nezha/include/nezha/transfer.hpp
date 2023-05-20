@@ -11,6 +11,13 @@ namespace nz
 class render_graph;
 
 
+struct range
+{
+  uint32_t offset;
+  uint32_t size;
+};
+
+
 /* Encapsulates a transfer operation. For internal use. */
 class transfer_operation 
 {
@@ -27,7 +34,7 @@ public:
     graph_resource_ref buf_ref, void *data, uint32_t offset, uint32_t size);
 
   void init_as_buffer_copy_to_cpu(
-    graph_resource_ref dst, graph_resource_ref src);
+    graph_resource_ref dst, graph_resource_ref src, uint32_t dst_base, const range &src_range);
 
   // For now, assume we blit the entire thing
   void init_as_image_blit(graph_resource_ref src, graph_resource_ref dst);
@@ -62,6 +69,8 @@ private:
     struct
     {
       graph_resource_ref dst, src;
+      uint32_t dst_offset;
+      range src_range;
     } buffer_copy_to_cpu_;
 
     // TODO:
