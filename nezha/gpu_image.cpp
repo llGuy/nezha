@@ -171,26 +171,30 @@ gpu_image &gpu_image::get_()
 
 gpu_image &gpu_image::configure(const image_info &info) 
 {
-  extent_ = info.extent;
-
-  aspect_ = info.is_depth ?
-    VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-
-  if (info.format == VK_FORMAT_MAX_ENUM) 
+  /* If the image was created already, ignore */
+  if (image_ == VK_NULL_HANDLE)
   {
-    if (aspect_ == VK_IMAGE_ASPECT_DEPTH_BIT) 
+    extent_ = info.extent;
+
+    aspect_ = info.is_depth ?
+      VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    if (info.format == VK_FORMAT_MAX_ENUM) 
     {
-      // Get default depth format
-      format_ = gctx->depth_format;
+      if (aspect_ == VK_IMAGE_ASPECT_DEPTH_BIT) 
+      {
+        // Get default depth format
+        format_ = gctx->depth_format;
+      }
+      else 
+      {
+        assert(false);
+      }
     }
     else 
     {
-      format_ = gctx->swapchain_format;
+      format_ = info.format;
     }
-  }
-  else 
-  {
-    format_ = info.format;
   }
 
   // TODO: Layer counts and stuff...

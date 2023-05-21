@@ -5,6 +5,7 @@
 #include <nezha/log.hpp>
 #include <nezha/bits.hpp>
 #include <nezha/memory.hpp>
+#include <nezha/surface.hpp>
 #include <nezha/gpu_context.hpp>
 
 #include <vector>
@@ -132,27 +133,33 @@ static void init_debug_messenger_()
     &gctx->messenger));
 }
 
-static void init_surface_() 
+static void init_surface_(const gpu_config &cfg, surface_data *surf)
 {
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+#if 0
   GLFWmonitor *primaryMonitor = glfwGetPrimaryMonitor();
   const GLFWvidmode *vidmode = glfwGetVideoMode(primaryMonitor);
   gctx->window_width = vidmode->width;
   gctx->window_height = vidmode->height;
 
   glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+#endif
 
-  gctx->window = glfwCreateWindow(
-    gctx->window_width, gctx->window_height, "Mirage", nullptr, nullptr);
+  surf->window_width = cfg.surface_width;
+  surf->window_height = cfg.surface_height;
 
-  if (!gctx->window) 
+  surf->window = glfwCreateWindow(
+    surf->window_width, surf->window_height, cfg.surface_name, nullptr, nullptr);
+
+  if (!surf->window) 
   {
     log_error("Failed to create window");
     panic_and_exit();
   }
 
   VK_CHECK(glfwCreateWindowSurface(
-    gctx->instance, gctx->window, nullptr, &gctx->surface));
+    gctx->instance, surf->window, nullptr, &surf->surface));
 }
 
 struct queue_families 
@@ -191,7 +198,7 @@ VkFormat find_suitable_depth_format_(VkFormat *formats, uint32_t format_count,
   return VkFormat(0);
 }
 
-static void init_device_(const gpu_config &config) 
+static void init_device_(const gpu_config &config, surface_data *surf) 
 {
   std::vector<const char *> extensions = 
   {
@@ -254,7 +261,7 @@ static void init_device_(const gpu_config &config)
         if (config.create_surface)
         {
           vkGetPhysicalDeviceSurfaceSupportKHR(
-              devices[i], f, gctx->surface, &present_support);
+              devices[i], f, surf->surface, &present_support);
         }
         else
         {
@@ -358,11 +365,11 @@ static void init_device_(const gpu_config &config)
     VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
-static void init_swapchain_() 
+static void init_swapchain_(surface_data *surf) 
 {
   VkSurfaceCapabilitiesKHR surface_capabilities;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-    gctx->gpu, gctx->surface, &surface_capabilities);
+    gctx->gpu, surf->surface, &surface_capabilities);
 
   // Format
   VkSurfaceFormatKHR format = {};
@@ -377,7 +384,7 @@ static void init_swapchain_()
   }
   else 
   {
-    surface_extent = { (u32)gctx->window_width, (u32)gctx->window_height };
+    surface_extent = { (u32)surf->window_width, (u32)surf->window_height };
 
     surface_extent.width = std::clamp(
       surface_extent.width,
@@ -405,7 +412,7 @@ static void init_swapchain_()
 
   VkSwapchainCreateInfoKHR swapchain_info = {};
   swapchain_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-  swapchain_info.surface = gctx->surface;
+  swapchain_info.surface = surf->surface;
   swapchain_info.minImageCount = image_count;
   swapchain_info.imageFormat = format.format;
   swapchain_info.imageColorSpace = format.colorSpace;
@@ -433,28 +440,28 @@ static void init_swapchain_()
   swapchain_info.oldSwapchain = VK_NULL_HANDLE;
 
   VK_CHECK(vkCreateSwapchainKHR(
-    gctx->device, &swapchain_info, NULL, &gctx->swapchain));
+    gctx->device, &swapchain_info, NULL, &surf->swapchain));
 
-  vkGetSwapchainImagesKHR(gctx->device, gctx->swapchain, &image_count, NULL);
+  vkGetSwapchainImagesKHR(gctx->device, surf->swapchain, &image_count, NULL);
 
-  gctx->images = heap_array<VkImage>(image_count);
+  surf->images.resize(image_count);
 
   VK_CHECK(vkGetSwapchainImagesKHR(
-    gctx->device, gctx->swapchain,
-    &image_count, gctx->images.data()));
+    gctx->device, surf->swapchain,
+    &image_count, surf->images.data()));
 
-  gctx->swapchain_extent = surface_extent;
-  gctx->swapchain_format = format.format;
+  surf->swapchain_extent = surface_extent;
+  surf->swapchain_format = format.format;
 
-  gctx->image_views = heap_array<VkImageView>(image_count);
+  surf->image_views.resize(image_count);
 
   for (u32 i = 0; i < image_count; ++i) 
   {
     VkImageViewCreateInfo image_view_info = {};
     image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    image_view_info.image = gctx->images[i];
+    image_view_info.image = surf->images[i];
     image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    image_view_info.format = gctx->swapchain_format;
+    image_view_info.format = surf->swapchain_format;
     image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     image_view_info.subresourceRange.baseMipLevel = 0;
     image_view_info.subresourceRange.levelCount = 1;
@@ -462,7 +469,7 @@ static void init_swapchain_()
     image_view_info.subresourceRange.layerCount = 1;
 
     VK_CHECK(vkCreateImageView(
-      gctx->device, &image_view_info, nullptr, &gctx->image_views[i]));
+      gctx->device, &image_view_info, nullptr, &surf->image_views[i]));
   }
 }
 
@@ -519,7 +526,7 @@ void init_descriptor_layout_helper_()
       descriptor_set_layout_category((VkDescriptorType)i);
 }
 
-void init_gpu_context(const gpu_config &config) 
+surface init_gpu_context(const gpu_config &config) 
 {
   gctx = mem_alloc<gpu_context>();
   zero_memory(gctx);
@@ -527,7 +534,7 @@ void init_gpu_context(const gpu_config &config)
   // Set all flags
   gctx->is_validation_enabled = true;
 
-  if (!glfwInit()) 
+  if (config.create_surface && !glfwInit()) 
   {
     log_error("failed to initialize GLFW");
     panic_and_exit();
@@ -536,53 +543,26 @@ void init_gpu_context(const gpu_config &config)
   init_instance_(config);
   init_debug_messenger_();
 
-  if (config.create_surface)
-    init_surface_();
-  init_device_(config);
+  surface_data surf;
 
   if (config.create_surface)
-    init_swapchain_();
+    init_surface_(config, &surf);
+  init_device_(config, &surf);
+
+  if (config.create_surface)
+    init_swapchain_(&surf);
 
   init_command_pool_();
   init_descriptor_pool_();
   init_descriptor_layout_helper_();
+
+  return surface(surf);
 }
 
 VkDescriptorSetLayout get_descriptor_set_layout(
   VkDescriptorType type, u32 count) 
 {
   return gctx->layout_categories[(int)type].get_descriptor_set_layout(count);
-}
-
-bool is_running() 
-{
-  return !glfwWindowShouldClose(gctx->window);
-}
-
-void poll_input() 
-{
-  glfwPollEvents();
-}
-
-u32 acquire_next_swapchain_image(VkSemaphore semaphore) 
-{
-  u32 idx = 0;
-  vkAcquireNextImageKHR(
-    gctx->device, gctx->swapchain, UINT64_MAX, semaphore, VK_NULL_HANDLE, &idx);
-  return idx;
-}
-
-void present_swapchain_image(VkSemaphore to_wait, u32 image_idx) 
-{
-  VkPresentInfoKHR present_info = {};
-  present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-  present_info.waitSemaphoreCount = 1;
-  present_info.pWaitSemaphores = &to_wait;
-  present_info.swapchainCount = 1;
-  present_info.pSwapchains = &gctx->swapchain;
-  present_info.pImageIndices = &image_idx;
-
-  vkQueuePresentKHR(gctx->present_queue, &present_info);
 }
 
 VkAccessFlags find_access_flags_for_stage(VkPipelineStageFlags stage) 

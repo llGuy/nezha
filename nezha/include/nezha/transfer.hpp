@@ -24,7 +24,7 @@ class transfer_operation
 public:
   enum type 
   {
-    buffer_update, buffer_copy, buffer_copy_to_cpu, image_copy, image_blit, none
+    buffer_update, buffer_copy, buffer_copy_to_cpu, image_copy, image_blit, present_ready, none
   };
 
   transfer_operation();
@@ -38,6 +38,8 @@ public:
 
   // For now, assume we blit the entire thing
   void init_as_image_blit(graph_resource_ref src, graph_resource_ref dst);
+
+  void init_as_present_ready(graph_resource_ref ref);
 
   binding &get_binding(uint32_t idx);
 
@@ -76,15 +78,20 @@ private:
     // TODO:
     struct 
     {
-    } buffer_copy_state;
+    } buffer_copy_state_;
 
     struct 
     {
-    } image_copy_state;
+    } image_copy_state_;
 
     struct 
     {
-    } image_blit_state;
+    } image_blit_state_;
+
+    struct
+    {
+      graph_resource_ref ref;
+    } present_ready_;
   };
 
   friend class render_graph;

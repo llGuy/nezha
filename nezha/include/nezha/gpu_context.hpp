@@ -2,6 +2,7 @@
 
 #include <nezha/log.hpp>
 #include <nezha/types.hpp>
+#include <nezha/surface.hpp>
 #include <nezha/heap_array.hpp>
 #include <nezha/descriptor_helper.hpp>
 
@@ -31,6 +32,7 @@ extern struct gpu_context
   VkQueue graphics_queue, present_queue;
   VkFormat depth_format;
 
+#if 0
   // Window / Surface
   GLFWwindow *window;
   u32 window_width, window_height;
@@ -40,6 +42,7 @@ extern struct gpu_context
   VkFormat swapchain_format;
   heap_array<VkImage> images;
   heap_array<VkImageView> image_views;
+#endif
 
   // Debug capabilities
   VkDebugUtilsMessengerEXT messenger;
@@ -59,10 +62,13 @@ extern struct gpu_context
 struct gpu_config
 {
   bool create_surface;
+  u32 surface_width;
+  u32 surface_height;
+  const char *surface_name;
 };
 
-void init_gpu_context(const gpu_config &config);
-bool is_running();
+surface init_gpu_context(const gpu_config &config);
+bool is_surface_active();
 void poll_input();
 u32 acquire_next_swapchain_image(VkSemaphore);
 void present_swapchain_image(VkSemaphore to_wait, u32 image_idx);

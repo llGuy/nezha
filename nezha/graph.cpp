@@ -38,6 +38,27 @@ gpu_image_ref render_graph::register_image(const image_info &cfg)
   return ref;
 }
 
+void render_graph::register_swapchain(const surface &surf, gpu_image_ref *dst)
+{
+  for (int i = 0; i < surf.get_swapchain_image_count(); ++i)
+  {
+    gpu_image_ref ref = resources_.add();
+    graph_resource &res = resources_[ref];
+
+    new (&res) graph_resource(gpu_image(this));
+
+    res.get_image().configure({
+      .format = surf.swapchain_format_,
+      .extent = { surf.swapchain_extent_.width, surf.swapchain_extent_.height, 1 },
+    });
+
+    res.get_image().image_ = surf.images_[i];
+    res.get_image().image_view_ = surf.image_views_[i];
+
+    dst[i] = ref;
+  }
+}
+
 compute_kernel render_graph::register_compute_kernel(const char *src)
 {
   compute_kernel k = kernels_.size();
@@ -81,6 +102,14 @@ void render_graph::add_image_blit(gpu_image_ref dst, gpu_image_ref src)
   auto &transfer = recorded_stages_.back();
 
   transfer.get_transfer_operation().init_as_image_blit(src, dst);
+}
+
+void render_graph::add_present_ready(gpu_image_ref ref)
+{
+  recorded_stages_.emplace_back(transfer_operation(this, recorded_stages_.size()));
+  auto &transfer = recorded_stages_.back();
+
+  transfer.get_transfer_operation().init_as_present_ready(ref);
 }
 
 void render_graph::begin() 
@@ -272,6 +301,21 @@ void render_graph::prepare_transfer_graph_stage_(transfer_operation &op)
         res.was_used_ = true;
         used_resources_.push_back(bind.rref);
       }
+    }
+  } break;
+
+  case transfer_operation::type::present_ready:
+  {
+    auto &bind = op.get_binding(0);
+
+    auto &res = get_resource_(bind.rref);
+
+    res.get_image().update_action_(bind);
+
+    if (!res.was_used_)
+    {
+      res.was_used_ = true;
+      used_resources_.push_back(bind.rref);
     }
   } break;
 
@@ -475,26 +519,41 @@ void render_graph::execute_transfer_graph_stage_(
       1, &region, VK_FILTER_LINEAR);
   } break;
 
+  case transfer_operation::type::present_ready:
+  {
+    gpu_image &img = get_image_((*op.bindings_)[0].rref);
+
+    // Handle present stage - transition image layout
+    VkImageMemoryBarrier barrier = 
+    {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      .image = img.get_().image_,
+      .oldLayout = img.get_().current_layout_,
+      .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+      .srcAccessMask = img.get_().current_access_,
+      .dstAccessMask = 0,
+      .subresourceRange.aspectMask = img.get_().aspect_,
+      .subresourceRange.baseArrayLayer = 0,
+      .subresourceRange.baseMipLevel = 0,
+      .subresourceRange.layerCount = 1,
+      .subresourceRange.levelCount = 1
+    };
+
+    vkCmdPipelineBarrier(info.cmdbuf, img.get_().last_used_,
+      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+    // Update image data
+    img.get_().current_layout_ = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    img.get_().current_access_ = 0;
+    img.get_().last_used_ = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+  } break;
+
   default: break;
   }
 }
 
 job render_graph::end() 
 {
-#if 0
-  // Determine which generator to use
-  if (!generator) 
-  {
-    if (present_info_.is_active) 
-      generator = &present_generator_;
-    else 
-      generator = &single_generator_;
-  }
-
-  // Generate the command buffer
-  cmdbuf_generator::cmdbuf_info info = generator->get_command_buffer();
-  current_cmdbuf_ = info.cmdbuf;
-#endif
   cmdbuf_info info;
   info.cmdbuf = current_cmdbuf_ = get_command_buffer_();
 
@@ -545,6 +604,20 @@ job render_graph::end()
   return job(info.cmdbuf, last_stage, this);
 }
 
+job render_graph::placeholder_job()
+{
+  submission sub;
+  sub.fence_ = get_fence_();
+  sub.ref_count_ = 1;
+
+  job j = job(VK_NULL_HANDLE, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, this);
+  j.fence_ = sub.fence_;
+
+  submissions_.push_back(std::move(sub));
+
+  return j;
+}
+
 render_graph::submission *render_graph::get_successful_submission_()
 {
   for (auto &sub : submissions_)
@@ -570,17 +643,15 @@ void render_graph::recycle_submissions_()
     free_fences_.insert(sub->fence_);
     free_semaphores_.insert(free_semaphores_.end(), sub->semaphores_.begin(), sub->semaphores_.end());
     free_cmdbufs_.insert(free_cmdbufs_.end(), sub->cmdbufs_.begin(), sub->cmdbufs_.end());
-  }
 
-  if (submissions_.size() > 1)
-  {
-    int index = sub - submissions_.data();
-    std::iter_swap(submissions_.begin() + index, submissions_.end() - 1);
-    submissions_.pop_back();
-  }
-  else
-  {
-    submissions_.clear();
+    if (submissions_.size() > 1)
+    {
+      int index = sub - submissions_.data();
+      std::iter_swap(submissions_.begin() + index, submissions_.end() - 1);
+      submissions_.pop_back();
+    }
+    else
+      submissions_.clear();
   }
 }
 
@@ -602,6 +673,9 @@ VkFence render_graph::get_fence_()
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Set to signaled because we reset the fence when submitting commands
     vkCreateFence(gctx->device, &fence_info, nullptr, &fence);
+
+    nz::log_info("Created fence!");
+
     return fence;
   }
 }
@@ -622,6 +696,9 @@ VkSemaphore render_graph::get_semaphore_()
     VkSemaphoreCreateInfo semaphore_info = {};
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     vkCreateSemaphore(gctx->device, &semaphore_info, nullptr, &semaphore);
+
+    nz::log_info("Created semaphore!");
+
     return semaphore;
   }
 }
@@ -646,6 +723,9 @@ VkCommandBuffer render_graph::get_command_buffer_()
     command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     vkAllocateCommandBuffers(
       gctx->device, &command_buffer_info, &command_buffer);
+
+    nz::log_info("Created command buffer!");
+
     return command_buffer;
   }
 }
@@ -706,12 +786,32 @@ pending_workload render_graph::submit(job *jobs, int count,
     workload.semaphores_[i] = signal_raw[i];
     workload.cmdbufs_[i] = jobs_raw[i];
     jobs[i].submission_idx_ = submissions_.size();
+    jobs[i].fence_ = fence;
   }
+
+  pending_workload ret;
+  ret.builder_ = this;
+  ret.fence_ = fence;
+  ret.submission_idx_ = submissions_.size();
 
   submissions_.push_back(std::move(workload));
 
+  return ret;
+}
+
+pending_workload render_graph::placeholder_workload()
+{
+  submission sub;
+  sub.fence_ = get_fence_();
+  sub.ref_count_ = 1;
+
   pending_workload ret;
-  ret.fence_ = fence;
+  ret.builder_ = this;
+  ret.fence_ = sub.fence_;
+  ret.submission_idx_ = submissions_.size();
+
+  submissions_.push_back(std::move(sub));
+
   return ret;
 }
 

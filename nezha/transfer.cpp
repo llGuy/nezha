@@ -80,6 +80,17 @@ void transfer_operation::init_as_image_blit(
   dst_img.add_usage_node_(idx_, 1);
 }
 
+void transfer_operation::init_as_present_ready(graph_resource_ref ref)
+{
+  type_ = type::present_ready;
+  binding b = {0, binding::type::present_ready, ref };
+
+  bindings_->push_back(b);
+
+  gpu_image &img = builder_->get_image_(ref);
+  img.add_usage_node_(idx_, 0);
+}
+
 binding &transfer_operation::get_binding(uint32_t idx) 
 {
   return (*bindings_)[idx];

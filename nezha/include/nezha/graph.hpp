@@ -3,6 +3,7 @@
 #include <nezha/job.hpp>
 #include <nezha/pass.hpp>
 #include <nezha/types.hpp>
+#include <nezha/surface.hpp>
 #include <nezha/binding.hpp>
 #include <nezha/resource.hpp>
 #include <nezha/transfer.hpp>
@@ -45,6 +46,7 @@ public:
   gpu_buffer_ref register_buffer(const buffer_info &cfg);
   gpu_image_ref  register_image(const image_info &cfg);
   compute_kernel register_compute_kernel(const char *src);
+  void           register_swapchain(const surface &, gpu_image_ref *dst);
 
 
   /* GET_# functions. Gives you direct access to the registered resources. */
@@ -59,6 +61,7 @@ public:
   void          add_buffer_update(gpu_buffer_ref, void *data, u32 offset = 0, u32 size = 0);
   void          add_buffer_copy_to_cpu(gpu_buffer_ref dst, gpu_buffer_ref src, u32 dst_offset, const range &rng);
   void          add_image_blit(gpu_image_ref src, gpu_image_ref dst);
+  void          add_present_ready(gpu_image_ref img);
 
 
   /* BEGIN() function. This puts the GRAPH into a state of recording commands. */
@@ -67,6 +70,7 @@ public:
 
   /* END() funciton. This stops recording and gives you a JOB which is ready for SUBMIT(). */
   job end();
+  job placeholder_job();
 
 
   /* SUBMIT() function(s). This submits a JOB which may have other JOB dependencies.
@@ -78,6 +82,7 @@ public:
   inline pending_workload submit(job &job, T &&...dependencies);
   inline pending_workload submit(job &job);
   pending_workload        submit(job *jobs, int count, job *dependencies, int dependency_count);
+  pending_workload        placeholder_workload();
 
 
 public:
@@ -102,6 +107,7 @@ private:
 
     friend class render_graph;
     friend class job;
+    friend class pending_workload;
   };
 
   /* All internal things that can be ignored! */
@@ -162,6 +168,8 @@ private:
   friend class transfer_operation;
   friend class graph_resource_tracker;
   friend class job;
+  friend class surface;
+  friend class pending_workload;
 };
 
 

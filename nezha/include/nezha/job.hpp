@@ -14,9 +14,17 @@ class render_graph;
 class job
 {
 public:
-  /* No public facing API. This is basically an opaque object as far as
-   * the user is concerned. */
+  job();
+
+  job(const job &other);
+  job(job &&other);
+
+  job &operator=(const job &other);
+  job &operator=(job &&other);
+
   ~job();
+
+  void wait();
 
 private:
   job(VkCommandBuffer cmdbuf, 
@@ -34,6 +42,8 @@ private:
    * is finished. */
   VkSemaphore finished_semaphore_;
 
+  VkFence fence_;
+
   int submission_idx_;
 
   VkPipelineStageFlags end_stage_;
@@ -42,6 +52,7 @@ private:
   render_graph *builder_;
 
   friend class render_graph;
+  friend class surface;
 };
 
 
@@ -50,12 +61,26 @@ private:
 class pending_workload
 {
 public:
+  pending_workload();
+
+  pending_workload(const pending_workload &other);
+  pending_workload(pending_workload &&other);
+
+  pending_workload &operator=(const pending_workload &other);
+  pending_workload &operator=(pending_workload &&other);
+
+  ~pending_workload();
+
   /* Causes the CPU side runtime to wait for a submitted workload (group of JOBs)
    * to finish execution. Warning, do not recommend using this. */
   void wait();
 
 private:
   VkFence fence_;
+
+  int submission_idx_;
+
+  render_graph *builder_;
 
   friend class render_graph;
 };

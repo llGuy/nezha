@@ -45,7 +45,7 @@ struct binding
   {
     // Image types
     sampled_image, storage_image, color_attachment, depth_attachment, 
-    image_transfer_src, image_transfer_dst, max_image, 
+    image_transfer_src, image_transfer_dst, present_ready, max_image,
 
     // Buffer types
     storage_buffer, uniform_buffer, buffer_transfer_src,
