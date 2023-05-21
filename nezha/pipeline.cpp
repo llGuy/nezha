@@ -334,4 +334,9 @@ void pso::bind_descriptors_(
     layout_, 0, count, sets, 0, nullptr);
 }
 
+void pso::push_constant(VkCommandBuffer cmdbuf, void *data, uint32_t size)
+{
+  vkCmdPushConstants(cmdbuf, layout_, VK_SHADER_STAGE_ALL, 0, size, data);
+}
+
 }

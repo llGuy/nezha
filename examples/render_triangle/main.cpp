@@ -2,6 +2,7 @@
 #include <nezha/graph.hpp>
 #include <nezha/surface.hpp>
 #include <nezha/pipeline.hpp>
+#include <nezha/math_util.hpp>
 #include <nezha/gpu_context.hpp>
 
 #define MAX_FRAMES_IN_FLIGHT 2
@@ -13,6 +14,12 @@ struct render_resources
 
   /* Pipeline state object for rendering triangle. */
   nz::pso triangle_shader;
+
+  /* Rotation angle of the triangle. */
+  float angle;
+
+  /* Frame time difference. */
+  float dt;
 };
 
 int main(int argc, char **argv)
@@ -26,7 +33,7 @@ int main(int argc, char **argv)
 
   nz::render_graph graph;
 
-  render_resources state;
+  render_resources state = {};
   state.backbuffer.resize(surface.get_swapchain_image_count());
   
   /* Register the swapchain images into the render graph. */
@@ -35,6 +42,7 @@ int main(int argc, char **argv)
   /* Create the triangle shader which rasterizes a triangle to the swapchain. */
   nz::pso_config triangle_raster_cfg("triangle.vert.spv", "triangle.frag.spv");
   triangle_raster_cfg.add_color_attachment(surface.get_swapchain_format());
+  triangle_raster_cfg.configure_layouts(sizeof(glm::mat3));
   state.triangle_shader = nz::pso(triangle_raster_cfg);
 
   /* Used to keep track of the current frame. (0 or 1). */
@@ -67,13 +75,21 @@ int main(int argc, char **argv)
     {
       /* Start recording commands for this frame. */
       graph.add_render_pass()
-        .add_color_attachment(state.backbuffer[image_idx])
+        .add_color_attachment(state.backbuffer[image_idx], {0.0f})
         .draw_commands([] (nz::render_pass::draw_package package)
         {
           render_resources *state_ptr = (render_resources *)package.user_ptr;
+
+          /* Update rotation angle of the triangle. */
+          state_ptr->angle += state_ptr->dt;
+          if (state_ptr->angle > glm::radians(360.0f)) state_ptr->angle -= glm::radians(360.0f);
+
+          glm::mat2 rot = glm::mat2(glm::cos(state_ptr->angle), -glm::sin(state_ptr->angle),
+                                    glm::sin(state_ptr->angle), glm::cos(state_ptr->angle));
   
           /* Actually render the triangle! */
           state_ptr->triangle_shader.bind(package.cmdbuf);
+          state_ptr->triangle_shader.push_constant(package.cmdbuf, &rot, sizeof(rot));
           vkCmdDraw(package.cmdbuf, 3, 1, 0, 0);
         }, &state);
 
@@ -90,7 +106,7 @@ int main(int argc, char **argv)
     current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
     nz::time_stamp t_end = nz::current_time();
-    nz::log_info("Framerate: %f", 1.0f/nz::time_difference(t_end, t_start));
+    state.dt = nz::time_difference(t_end, t_start);
   }
 
   return 0;

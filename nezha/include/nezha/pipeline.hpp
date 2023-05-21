@@ -133,7 +133,7 @@ public:
   pso(pso_config &config);
 
   void bind(VkCommandBuffer cmdbuf);
-  void push_constant(void *data, uint32_t size);
+  void push_constant(VkCommandBuffer cmdbuf, void *data, uint32_t size);
 
   template <typename ...T>
   void bind_descriptors(VkCommandBuffer cmdbuf, T ...t_sets)
