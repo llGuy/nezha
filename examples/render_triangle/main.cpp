@@ -1,3 +1,4 @@
+#include <nezha/time.hpp>
 #include <nezha/graph.hpp>
 #include <nezha/surface.hpp>
 #include <nezha/pipeline.hpp>
@@ -49,15 +50,17 @@ int main(int argc, char **argv)
    * the application running until the user presses the X button. */
   while (surface.io().is_window_open())
   {
+    nz::time_stamp t_start = nz::current_time();
+
     /* We need to poll input events from the user. */
     surface.io().poll_input();
+
+    /* Wait for the previous workload to finish. */
+    frame_jobs[current_frame].wait();
 
     /* Update the swapchain. */
     uint32_t image_idx = 0;
     nz::job acquire_job = surface.acquire_next_swapchain_image(graph, image_idx);
-
-    /* Wait for the previous workload to finish. */
-    frame_jobs[current_frame].wait();
 
     /* Record frame rendering commands. */
     graph.begin();
@@ -66,28 +69,28 @@ int main(int argc, char **argv)
       graph.add_render_pass()
         .add_color_attachment(state.backbuffer[image_idx])
         .draw_commands([] (nz::render_pass::draw_package package)
-            {
-            render_resources *state_ptr = (render_resources *)package.user_ptr;
-
-            /* Actually render the triangle! */
-            state_ptr->triangle_shader.bind(package.cmdbuf);
-            vkCmdDraw(package.cmdbuf, 3, 1, 0, 0);
-            }, &state);
+        {
+          render_resources *state_ptr = (render_resources *)package.user_ptr;
+  
+          /* Actually render the triangle! */
+          state_ptr->triangle_shader.bind(package.cmdbuf);
+          vkCmdDraw(package.cmdbuf, 3, 1, 0, 0);
+        }, &state);
 
       graph.add_present_ready(state.backbuffer[image_idx]);
     }
-    nz::job frame_job = graph.end();
+    frame_jobs[current_frame] = graph.end();
 
     /* This job depends on acquiring the image. */
-    graph.submit(frame_job, acquire_job);
+    graph.submit(frame_jobs[current_frame], acquire_job);
 
     /* Present - depends on frame job finishing. */
-    surface.present(frame_job, image_idx);
-
-    /* Make sure the fence persists so that we can wait for it later. */
-    frame_jobs[current_frame] = frame_job;
+    surface.present(frame_jobs[current_frame], image_idx);
 
     current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+
+    nz::time_stamp t_end = nz::current_time();
+    nz::log_info("Framerate: %f", 1.0f/nz::time_difference(t_end, t_start));
   }
 
   return 0;

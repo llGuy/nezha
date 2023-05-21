@@ -105,12 +105,15 @@ private:
     // All the command buffers that will get freed up
     std::vector<VkCommandBuffer> cmdbufs_;
 
+    bool active_;
+
     friend class render_graph;
     friend class job;
     friend class pending_workload;
   };
 
   /* All internal things that can be ignored! */
+  int add_submission_(const submission &sub);
   graph_resource_tracker get_resource_tracker();
   void recycle_submissions_();
   submission *get_successful_submission_();
@@ -147,6 +150,7 @@ private:
 
 private:
   static constexpr uint32_t max_resources = 1000;
+  static constexpr uint32_t max_submissions = 1000;
 
   dynamic_array<graph_resource> resources_;
 

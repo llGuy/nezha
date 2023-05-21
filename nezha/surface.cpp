@@ -1,5 +1,3 @@
-#pragma once
-
 #include <nezha/graph.hpp>
 #include <nezha/surface.hpp>
 #include <nezha/gpu_context.hpp>
@@ -42,7 +40,7 @@ VkFormat surface::get_swapchain_format() const
 nz::job surface::acquire_next_swapchain_image(render_graph &graph, u32 &idx)
 {
   /* This will acquire a semaphore for us to signal with acquire. */
-  nz::job ret = nz::job(VK_NULL_HANDLE, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, &graph);
+  nz::job ret = graph.placeholder_job();
 
   vkAcquireNextImageKHR(gctx->device, swapchain_, UINT64_MAX, 
                         ret.finished_semaphore_, VK_NULL_HANDLE, &idx);

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <iterator>
+#include <algorithm>
 
 namespace nz 
 {
@@ -208,7 +209,10 @@ public:
 
   iterator begin() 
   {
-    return iterator(this, 0);
+    int start = 0;
+    for (int i = 0; i < removed_count_; ++i)
+      start = std::max(start, removed_[i]);
+    return iterator(this, start);
   }
 
   iterator end() 
@@ -218,7 +222,10 @@ public:
 
   const_iterator begin() const 
   {
-    return iterator(this, 0);
+    int start = 0;
+    for (int i = 0; i < removed_count_; ++i)
+      start = std::max(start, removed_[i]);
+    return iterator(this, start);
   }
 
   const_iterator at(const const_iterator &other) const 

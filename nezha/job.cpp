@@ -20,7 +20,9 @@ job::job(const job &other)
   builder_ = other.builder_;
 
   if (submission_idx_ != -1)
+  {
     builder_->submissions_[submission_idx_].ref_count_++;
+  }
 }
 
 job::job(job &&other)
@@ -45,7 +47,9 @@ job::~job()
 {
   if (submission_idx_ != -1)
   {
+    assert(builder_->submissions_[submission_idx_].ref_count_ > 0);
     builder_->submissions_[submission_idx_].ref_count_--;
+    submission_idx_ = -1;
   }
 }
 
@@ -53,6 +57,7 @@ job &job::operator=(const job &other)
 {
   if (submission_idx_ != -1)
   {
+    assert(builder_->submissions_[submission_idx_].ref_count_ > 0);
     builder_->submissions_[submission_idx_].ref_count_--;
     submission_idx_ = -1;
   }
@@ -63,6 +68,9 @@ job &job::operator=(const job &other)
   fence_ = other.fence_;
   end_stage_ = other.end_stage_;
   builder_ = other.builder_;
+
+  if (submission_idx_ != -1)
+    builder_->submissions_[submission_idx_].ref_count_++;
 
   return *this;
 }
@@ -84,6 +92,13 @@ job &job::operator=(job &&other)
 void job::wait()
 {
   vkWaitForFences(gctx->device, 1, &fence_, true, UINT64_MAX);
+
+  if (submission_idx_ != -1)
+  {
+    assert(builder_->submissions_[submission_idx_].ref_count_ > 0);
+    builder_->submissions_[submission_idx_].ref_count_--;
+    submission_idx_ = -1;
+  }
 }
 
 pending_workload::pending_workload()
@@ -103,6 +118,7 @@ pending_workload::pending_workload(pending_workload &&other)
 {
   if (submission_idx_ != -1)
   {
+    assert(builder_->submissions_[submission_idx_].ref_count_ > 0);
     builder_->submissions_[submission_idx_].ref_count_--;
     submission_idx_ = -1;
   }
@@ -112,6 +128,13 @@ pending_workload::pending_workload(pending_workload &&other)
 
 pending_workload &pending_workload::operator=(const pending_workload &other)
 {
+  if (submission_idx_ != -1)
+  {
+    assert(builder_->submissions_[submission_idx_].ref_count_ > 0);
+    builder_->submissions_[submission_idx_].ref_count_--;
+    submission_idx_ = -1;
+  }
+
   submission_idx_ = other.submission_idx_;
   fence_ = other.fence_; 
   builder_ = other.builder_;
@@ -129,6 +152,7 @@ pending_workload &pending_workload::operator=(pending_workload &&other)
 
   if (submission_idx_ != -1)
   {
+    assert(builder_->submissions_[submission_idx_].ref_count_ > 0);
     builder_->submissions_[submission_idx_].ref_count_--;
     submission_idx_ = -1;
   }
@@ -142,6 +166,7 @@ pending_workload::~pending_workload()
 {
   if (submission_idx_ != -1)
   {
+    assert(builder_->submissions_[submission_idx_].ref_count_ > 0);
     builder_->submissions_[submission_idx_].ref_count_--;
   }
 }
@@ -153,6 +178,7 @@ void pending_workload::wait()
   /* Make it so that WAIT() release the submission. */
   if (submission_idx_ != -1)
   {
+    assert(builder_->submissions_[submission_idx_].ref_count_ > 0);
     builder_->submissions_[submission_idx_].ref_count_--;
     submission_idx_ = -1;
   }

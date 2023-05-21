@@ -341,7 +341,6 @@ void render_graph::execute_pass_graph_stage_(
     {
       // Actually initialize the compute pipeline/layout
       // which is stored in the compute_kernel_state of the render graph
-      nz::log_info("Created a compute pipeline!");
       cp.create_(cp_state);
     }
 
@@ -604,16 +603,39 @@ job render_graph::end()
   return job(info.cmdbuf, last_stage, this);
 }
 
+int render_graph::add_submission_(const submission &sub)
+{
+  /* Find any inactive submissions */
+  for (int i = 0; i < submissions_.size(); ++i)
+  {
+    if (!submissions_[i].active_)
+    {
+      submissions_[i] = sub;
+      return i;
+    }
+  }
+
+  int idx = submissions_.size();
+  submissions_.push_back(sub);
+  return idx;
+}
+
 job render_graph::placeholder_job()
 {
-  submission sub;
-  sub.fence_ = get_fence_();
-  sub.ref_count_ = 1;
+  VkFence fence = get_fence_();
 
   job j = job(VK_NULL_HANDLE, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, this);
-  j.fence_ = sub.fence_;
+  j.fence_ = fence;
 
-  submissions_.push_back(std::move(sub));
+  submission sub;
+  sub.fence_ = fence;
+  sub.ref_count_ = 1;
+  sub.active_ = true;
+  sub.semaphores_.push_back(j.finished_semaphore_);
+
+  u32 sub_idx = add_submission_(sub);
+
+  j.submission_idx_ = sub_idx;
 
   return j;
 }
@@ -622,7 +644,7 @@ render_graph::submission *render_graph::get_successful_submission_()
 {
   for (auto &sub : submissions_)
   {
-    if (sub.ref_count_ == 0)
+    if (sub.active_ && sub.ref_count_ == 0)
     {
       VkResult res = vkGetFenceStatus(gctx->device, sub.fence_);
       if (res == VK_SUCCESS)
@@ -640,18 +662,16 @@ void render_graph::recycle_submissions_()
   if (sub)
   {
     // Recycle all the stuff
-    free_fences_.insert(sub->fence_);
+    if (sub->fence_ != VK_NULL_HANDLE)
+      free_fences_.insert(sub->fence_);
+
     free_semaphores_.insert(free_semaphores_.end(), sub->semaphores_.begin(), sub->semaphores_.end());
     free_cmdbufs_.insert(free_cmdbufs_.end(), sub->cmdbufs_.begin(), sub->cmdbufs_.end());
 
-    if (submissions_.size() > 1)
-    {
-      int index = sub - submissions_.data();
-      std::iter_swap(submissions_.begin() + index, submissions_.end() - 1);
-      submissions_.pop_back();
-    }
-    else
-      submissions_.clear();
+    sub->cmdbufs_.resize(0);
+    sub->semaphores_.resize(0);
+    sub->fence_ = VK_NULL_HANDLE;
+    sub->active_ = false;
   }
 }
 
@@ -674,7 +694,7 @@ VkFence render_graph::get_fence_()
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Set to signaled because we reset the fence when submitting commands
     vkCreateFence(gctx->device, &fence_info, nullptr, &fence);
 
-    nz::log_info("Created fence!");
+    nz::log_info("Created fence");
 
     return fence;
   }
@@ -697,7 +717,7 @@ VkSemaphore render_graph::get_semaphore_()
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     vkCreateSemaphore(gctx->device, &semaphore_info, nullptr, &semaphore);
 
-    nz::log_info("Created semaphore!");
+    nz::log_info("Created semaphore");
 
     return semaphore;
   }
@@ -724,7 +744,7 @@ VkCommandBuffer render_graph::get_command_buffer_()
     vkAllocateCommandBuffers(
       gctx->device, &command_buffer_info, &command_buffer);
 
-    nz::log_info("Created command buffer!");
+    nz::log_info("Created command buffer");
 
     return command_buffer;
   }
@@ -747,16 +767,8 @@ pending_workload render_graph::submit(job *jobs, int count,
     if (dependencies[i].submission_idx_ >= 0)
     {
       submission &s = submissions_[dependencies[i].submission_idx_];
-      if (VK_SUCCESS == vkGetFenceStatus(gctx->device, s.fence_))
-      {
-        submissions_[dependencies[i].submission_idx_].ref_count_--;
-        dependencies[i].submission_idx_ = -1;
-      }
-      else
-      {
-        ++wait_count;
-        (wait_raw[i] = dependencies[i].finished_semaphore_), (end_stages[i] = dependencies[i].end_stage_);
-      }
+      ++wait_count;
+      (wait_raw[i] = dependencies[i].finished_semaphore_), (end_stages[i] = dependencies[i].end_stage_);
     }
   }
 
@@ -776,25 +788,31 @@ pending_workload render_graph::submit(job *jobs, int count,
 
   vkQueueSubmit(gctx->graphics_queue, 1, &info, fence);
 
-  submission workload;
-  workload.fence_ = fence;
-  workload.semaphores_.resize(count);
-  workload.cmdbufs_.resize(count);
-  workload.ref_count_ = count;
+  submission sub;
+  sub.fence_ = fence;
+  sub.semaphores_.resize(count);
+  sub.cmdbufs_.resize(count);
+  sub.ref_count_ = count + 1;
+  sub.active_ = true;
+
   for (int i = 0; i < count; ++i)
   {
-    workload.semaphores_[i] = signal_raw[i];
-    workload.cmdbufs_[i] = jobs_raw[i];
-    jobs[i].submission_idx_ = submissions_.size();
+    sub.semaphores_[i] = signal_raw[i];
+    sub.cmdbufs_[i] = jobs_raw[i];
+  }
+
+  u32 sub_idx = add_submission_(std::move(sub));
+
+  for (int i = 0; i < count; ++i)
+  {
+    jobs[i].submission_idx_ = sub_idx;
     jobs[i].fence_ = fence;
   }
 
   pending_workload ret;
   ret.builder_ = this;
   ret.fence_ = fence;
-  ret.submission_idx_ = submissions_.size();
-
-  submissions_.push_back(std::move(workload));
+  ret.submission_idx_ = sub_idx;
 
   return ret;
 }
@@ -804,13 +822,15 @@ pending_workload render_graph::placeholder_workload()
   submission sub;
   sub.fence_ = get_fence_();
   sub.ref_count_ = 1;
+  sub.active_ = true;
+
+  u32 sub_idx = add_submission_(sub);
 
   pending_workload ret;
   ret.builder_ = this;
   ret.fence_ = sub.fence_;
-  ret.submission_idx_ = submissions_.size();
 
-  submissions_.push_back(std::move(sub));
+  ret.submission_idx_ = sub_idx;
 
   return ret;
 }
