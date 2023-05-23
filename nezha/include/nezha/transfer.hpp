@@ -36,6 +36,9 @@ public:
   void init_as_buffer_copy_to_cpu(
     graph_resource_ref dst, graph_resource_ref src, uint32_t dst_base, const range &src_range);
 
+  void init_as_buffer_copy(
+    graph_resource_ref dst, graph_resource_ref src, uint32_t dst_base, const range &src_range);
+
   // For now, assume we blit the entire thing
   void init_as_image_blit(graph_resource_ref src, graph_resource_ref dst);
 
@@ -78,6 +81,9 @@ private:
     // TODO:
     struct 
     {
+      graph_resource_ref dst, src;
+      uint32_t dst_offset;
+      range src_range;
     } buffer_copy_state_;
 
     struct 
