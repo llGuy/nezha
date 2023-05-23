@@ -36,7 +36,6 @@ void main()
   uint batch_local_id = invocation % gl_SubgroupSize.x;
 
 
-
   /* Perform sum over 32 elements in one instruction! (line 46) */
   uint array_idx = invocation * sum_info.depth_exp;
   float array_value = uinput.data[array_idx];

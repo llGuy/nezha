@@ -1,11 +1,19 @@
               NEZHA: high performance GPU computation graph 
                      framework for ML and graphics workloads
 
-Dependencies:
-- Vulkan
+# Directory structure:
+- examples/ -> Examples. Each subdirectory compiles to an executable of that name
+- ext/      -> Dependencies (other than Vulkan) - not all are in use right now
+- nezha/    -> GPU computation graph framework (static library)
+- res/      -> All compute kernels / shaders
+- src/      -> The model we are working on
 
-Directory structure:
-- ext/   -> Dependencies (other than Vulkan) - not all are in use right now
-- nezha/ -> GPU computation graph framework (static library)
-- res/   -> All compute kernels / shaders
-- src/   -> The model we are working on
+# Setup (other platforms to come):
+
+- MacOS:
+  Make sure you export brew's include and library paths in shell config for M1
+  Install Vulkan SDK
+  `brew install glfw`
+  `brew install cmake`
+  `brew install glm`
+  `./build.py`

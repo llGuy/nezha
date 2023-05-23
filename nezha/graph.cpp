@@ -96,6 +96,15 @@ void render_graph::add_buffer_copy_to_cpu(
   transfer.get_transfer_operation().init_as_buffer_copy_to_cpu(dst, src, dst_offset, rng);
 }
 
+void render_graph::add_buffer_copy(
+  gpu_buffer_ref dst, gpu_buffer_ref src, u32 dst_base, const range &src_rng)
+{
+  recorded_stages_.emplace_back(transfer_operation(this, recorded_stages_.size()));
+  auto &transfer = recorded_stages_.back();
+
+  transfer.get_transfer_operation().init_as_buffer_copy(dst, src, dst_base, src_rng);
+}
+
 void render_graph::add_image_blit(gpu_image_ref dst, gpu_image_ref src) 
 {
   recorded_stages_.emplace_back(transfer_operation(this, recorded_stages_.size()));
@@ -275,6 +284,34 @@ void render_graph::prepare_transfer_graph_stage_(transfer_operation &op)
     }
   } break;
 
+  case transfer_operation::type::buffer_copy: {
+    { // Dst
+      auto &bind = op.get_binding(0);
+
+      auto &res = get_resource_(bind.rref);
+      res.get_buffer().update_action_(bind);
+
+      if (!res.was_used_) 
+      {
+        res.was_used_ = true;
+        used_resources_.push_back(bind.rref);
+      }
+    }
+
+    { // Src
+      auto &bind = op.get_binding(1);
+
+      auto &res = get_resource_(bind.rref);
+      res.get_buffer().update_action_(bind);
+
+      if (!res.was_used_) 
+      {
+        res.was_used_ = true;
+        used_resources_.push_back(bind.rref);
+      }
+    }
+  } break;
+
   case transfer_operation::type::image_blit: 
   {
     { // Src
@@ -406,6 +443,55 @@ void render_graph::execute_transfer_graph_stage_(
   {
     uint32_t dst_base = op.buffer_copy_to_cpu_.dst_offset;
     range src_rng = op.buffer_copy_to_cpu_.src_range;
+
+    binding &dst_binding = (*op.bindings_)[0];
+    binding &src_binding = (*op.bindings_)[1];
+
+    gpu_buffer &dst = get_buffer_(dst_binding.rref);
+    gpu_buffer &src = get_buffer_(src_binding.rref);
+
+    VkBufferMemoryBarrier dst_barrier =
+    {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+      .buffer = dst.buffer_,
+      .srcAccessMask = dst.current_access_,
+      .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+      .offset = dst_base,
+      .size = src_rng.size
+    };
+
+    vkCmdPipelineBarrier(info.cmdbuf, dst.last_used_,
+      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &dst_barrier, 0, nullptr);
+
+    auto src_barrier = dst_barrier;
+    src_barrier.buffer = src.buffer_;
+    src_barrier.srcAccessMask = src.current_access_;
+    src_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    src_barrier.offset = src_rng.offset;
+    src_barrier.size = src_rng.size;
+
+    vkCmdPipelineBarrier(info.cmdbuf, src.last_used_,
+      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &src_barrier, 0, nullptr);
+
+    VkBufferCopy region = {
+      .size = src_rng.size,
+      .srcOffset = src_rng.offset,
+      .dstOffset = dst_base
+    };
+
+    vkCmdCopyBuffer(info.cmdbuf, src.buffer_, dst.buffer_, 1, &region);
+
+    dst.last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dst.current_access_ = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    src.last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    src.current_access_ = VK_ACCESS_TRANSFER_READ_BIT;
+  } break;
+
+  case transfer_operation::type::buffer_copy:
+  {
+    uint32_t dst_base = op.buffer_copy_state_.dst_offset;
+    range src_rng = op.buffer_copy_state_.src_range;
 
     binding &dst_binding = (*op.bindings_)[0];
     binding &src_binding = (*op.bindings_)[1];

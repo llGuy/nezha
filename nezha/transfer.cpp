@@ -43,7 +43,7 @@ void transfer_operation::init_as_buffer_copy_to_cpu(
 {
   type_ = type::buffer_copy_to_cpu;
   binding b0 = { 0, binding::type::buffer_transfer_dst, dst };
-  binding b1 = { 1, binding::type::buffer_transfer_dst, src };
+  binding b1 = { 1, binding::type::buffer_transfer_src, src };
 
   bindings_->push_back(b0);
   bindings_->push_back(b1);
@@ -58,6 +58,28 @@ void transfer_operation::init_as_buffer_copy_to_cpu(
 
   // Make sure the dst buffer is host visible
   buf0.configure({.host_visible = true});
+
+  gpu_buffer &buf1 = builder_->get_buffer_(src);
+  buf1.add_usage_node_(idx_, 1);
+}
+
+void transfer_operation::init_as_buffer_copy(
+  graph_resource_ref dst, graph_resource_ref src, uint32_t dst_base, const range &src_range)
+{
+  type_ = type::buffer_copy;
+  binding b0 = { 0, binding::type::buffer_transfer_dst, dst };
+  binding b1 = { 1, binding::type::buffer_transfer_src, src };
+
+  bindings_->push_back(b0);
+  bindings_->push_back(b1);
+
+  buffer_copy_state_.dst = dst;
+  buffer_copy_state_.dst = src;
+  buffer_copy_state_.dst_offset = dst_base;
+  buffer_copy_state_.src_range = src_range;
+
+  gpu_buffer &buf0 = builder_->get_buffer_(dst);
+  buf0.add_usage_node_(idx_, 0);
 
   gpu_buffer &buf1 = builder_->get_buffer_(src);
   buf1.add_usage_node_(idx_, 1);

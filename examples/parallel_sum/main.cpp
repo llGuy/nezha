@@ -52,7 +52,7 @@ int main(int argc, char **argv)
     .sum_kernel = graph.register_compute_kernel("kernel_sum32"),
 
     .buffer = graph.register_buffer({ .size = INPUT_SIZE }),
-    .output = graph.register_buffer({ .size = sizeof(float) })
+    .output = graph.register_buffer({ .size = sizeof(float), .host_visible = true })
   };
 
   /* Figure out how many iterations of this loop we need to run. Amount of
@@ -87,7 +87,7 @@ int main(int argc, char **argv)
         .dispatch(input_count / (32*exp), 1, 1);
     }
 
-    graph.add_buffer_copy_to_cpu(
+    graph.add_buffer_copy(
       state.output, state.buffer, 
       0, { .offset = 0, .size = sizeof(float) });
   }
