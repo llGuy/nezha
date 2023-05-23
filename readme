@@ -16,7 +16,4 @@
   `brew install glfw`
   `brew install cmake`
   `brew install glm`
-  `mkdir build`
-  `cd build`
-  `cmake ..`
-  `make`
+  `./build.py`
