@@ -1,0 +1,84 @@
+#include <signal.h>
+
+#include <nezha/log.hpp>
+#include <nezha/graph.hpp>
+#include <nezha/gpu_context.hpp>
+
+struct graph_state
+{
+  uint32_t input_size;
+
+  // Buffers in use
+  nz::gpu_buffer_ref input_buffer;
+  nz::gpu_buffer_ref output_buffer;
+
+  // This initializes a buffer with 0, 1, 2, 3...
+  nz::compute_kernel init_kernel;
+
+  // This doubles all values in a buffer
+  nz::compute_kernel double_kernel;
+};
+
+nz::job record_first_job(nz::render_graph &graph, const graph_state &state)
+{
+  /* Record computation. */
+  graph.begin();
+
+  { /* These are all the compute workloads we will dispatch in this job. */
+    graph.add_compute_pass()
+      .set_kernel(state.init_kernel)
+      .add_storage_buffer(state.input_buffer)
+      .dispatch(state.input_size/32, 1, 1);
+
+    graph.add_compute_pass()
+      .set_kernel(state.double_kernel)
+      .add_storage_buffer(state.input_buffer)
+      .dispatch(state.input_size/32, 1, 1);
+  }
+
+    graph.add_buffer_copy_to_cpu(
+    state.output_buffer, state.input_buffer,
+    0, { .offset = 0, .size = state.input_size });
+
+  /* We get a JOB object after ending the graph recording. */
+  nz::job job = graph.end();
+
+  return job;
+}
+
+int main(int argc, char **argv) 
+{
+  /* Initialize API */
+  nz::init_gpu_context({ .create_surface = false });
+  nz::render_graph graph;
+  
+  /* Configure resources */
+  const uint32_t INPUT_SIZE = (1<<10) * sizeof(float);
+
+  graph_state state = {
+    .input_size = INPUT_SIZE,
+    .input_buffer = graph.register_buffer({ .size = INPUT_SIZE }),
+    .output_buffer = graph.register_buffer({ .size = INPUT_SIZE }),
+    .init_kernel = graph.register_compute_kernel("kernel_iota"),
+    .double_kernel = graph.register_compute_kernel("kernel_relu")
+  };
+
+  nz::job job1 = record_first_job(graph, state);
+
+  /* After submitting, we get a pending workload and wait for it. */
+  nz::log_info("GPU started work!");
+  {
+    nz::pending_workload workload1 = graph.submit(job1);
+    workload1.wait();
+  }
+  nz::log_info("GPU finished work!");
+
+  /* Reading data from the result of compute kernel */
+  nz::log_info("Verifying data...");
+  nz::memory_mapping map = graph.get_buffer(state.output_buffer).map();
+
+  float *result = (float *)map.data();
+  nz::log_info("Got %f %f %f ...", result[0], result[1], result[2]);
+
+  return 0;
+}

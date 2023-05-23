@@ -1,0 +1,19 @@
+#version 450
+
+#include "nezha.glsl"
+
+layout (local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+BEGIN_STORAGE_BUFFER(0, 0, input_a_data)
+  float data[];
+END_STORAGE_BUFFER(uvector_a);
+
+BEGIN_STORAGE_BUFFER(1, 0, input_b_data)
+  float data[];
+END_STORAGE_BUFFER(uvector_b);
+
+void main() 
+{
+  uint idx = gl_GlobalInvocationID.x;
+  uvector_a.data[idx] = uvector_a.data[idx] * uvector_b.data[idx];
+}
