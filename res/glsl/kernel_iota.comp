@@ -11,5 +11,7 @@ END_STORAGE_BUFFER(uinput);
 void main() 
 {
   uint idx = gl_GlobalInvocationID.x;
+
+  /* Fill buffer with numbers from 0 to some N */
   uinput.data[idx] = float(idx);
 }
