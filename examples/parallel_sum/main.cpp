@@ -51,7 +51,7 @@ int main(int argc, char **argv)
     .init_kernel = graph.register_compute_kernel("kernel_iota"),
     .sum_kernel = graph.register_compute_kernel("kernel_sum32"),
 
-    .buffer = graph.register_buffer({ .size = INPUT_SIZE }),
+    .buffer = graph.register_buffer({ .size = INPUT_SIZE, .type = nz::binding::type::buffer_transfer_dst }),
     .output = graph.register_buffer({ .size = sizeof(float), .host_visible = true })
   };
 
