@@ -1,0 +1,114 @@
+// This compute shader performs a generic matrix multiply between two
+// matrices A and B, returning a matrix C.
+// 
+// A has shape (MxK), B has shape (KxN) and C has shape (MxN).
+
+#version 450
+
+#include "nezha.glsl"
+
+// These are placeholder values right now and are in the future to be
+// initialized by the user who may require a specific shape for A and B
+// as well as configuring the block count in each direction.
+//
+// The user will have to dispatch this compute shader with the following
+// parameters:
+//
+// vkCmdDispatch(BLOCK_COUNT_N, BLOCK_COUNT_M, 1);
+#define SHAPE_M       (0x1000)
+#define SHAPE_K       (0x1000)
+#define SHAPE_N       (0x1000)
+#define BLOCK_COUNT_M (0x1000)
+#define BLOCK_COUNT_N (0x1000)
+#define BLOCK_COUNT_K (0x1000)
+
+// These are things which are derived from user defined values.
+// We round up the block items constants.
+#define BLOCK_ITEMS_M ((SHAPE_M+BLOCK_COUNT_M-1) / BLOCK_COUNT_M)
+#define BLOCK_ITEMS_K ((SHAPE_K+BLOCK_COUNT_K-1) / BLOCK_COUNT_K)
+#define BLOCK_ITEMS_N ((SHAPE_N+BLOCK_COUNT_N-1) / BLOCK_COUNT_N)
+
+// Shared memory constants. We can precompute how much space is required
+// for the output, the input A and the input B.
+#define SM_OUTPUT_SIZE       (BLOCK_ITEMS_N * BLOCK_ITEMS_M)
+#define SM_INPUT_A_TILE_SIZE (BLOCK_ITEMS_K * BLOCK_ITEMS_M)
+#define SM_INPUT_B_TILE_SIZE (BLOCK_ITEMS_K * BLOCK_ITEMS_N)
+
+// Some constants for warp level parallelism and configuration. Here,
+// each warp in the M direction (Y direction) can process 64 floats
+// and 32 floats in the N direction (X direction). This stems from the
+// following calculation.
+//
+// We assume warp size is 32.
+//
+// Each warp can occupy a thread space of 8x4. In the M direction (with 8
+// threads), we can process 2 vec4's -> 8 floats. In the N direction (with
+// 4 threads), we can process 2 vec4's -> 8 floats. Therefore, we can
+// process 64 floats in the M direction and 32 floats in the N direction.
+#define WARP_SIZE 32
+#define NUM_WARPS_M ((BLOCK_ITEMS_M+63) / 64)
+#define NUM_WARPS_N ((BLOCK_ITEMS_N+31) / 32)
+#define THREADS_PER_THREADGROUP (NUM_WARPS_M * NUM_WARPS_N * WARP_SIZE)
+
+// We can calculate how many threads there are in each direction
+// of a threadgroup by using the warp count calculated for a
+// threadgroup.
+layout (local_size_x = NUM_WARPS_N * WARP_SIZE, 
+        local_size_y = NUM_WARPS_M * WARP_SIZE, 1) in;
+
+// We have calculated how many floats from the inputs we need for the
+// shared memory buffer.
+shared struct {
+  // Just share the float/data extent that the threadgroup will be dealing with.
+  ivec2 m_extent;
+  ivec2 n_extent;
+  ivec2 k_extent;
+
+  // This will contain the output of the tile matrix multiply.
+  float output_tile[BLOCK_ITEMS_M * BLOCK_ITEMS_N];
+
+  // At each iteration, we calculate the result of the matrix from the given
+  // float fragments (to explain later in code) and add the result of the
+  // TEMPORARY_TILE to the OUTPUT_TILE.
+  float temporary_tile[BLOCK_ITEMS_M * BLOCK_ITEMS_N];
+
+  // This will contain the loaded values from the tile in the A matrix (MxK).
+  float a_tile[BLOCK_ITEMS_M * BLOCK_ITEMS_K];
+
+  // This will contain the loaded values from the tile in the B matrix (KxN).
+  float b_tile[BLOCK_ITEMS_K * BLOCK_ITEMS_N];
+} sm;
+
+// Here, we need to loop through each tile in the A and B matrices which correspond
+// to the output tile we are trying to calculate right now in this threadgroup.
+// The amount of times we need to perform the loop is BLOCK_COUNT_K.
+void main()
+{
+  // Calculate the index ranges that this threadgroup will deal with.
+  if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0)
+  {
+    sm.m_extent = ivec2(gl_WorkGroupID.y * BLOCK_ITEMS_M, (gl_WorkGroupID.y+1) * BLOCK_ITEMS_M);
+    sm.n_extent = ivec2(gl_WorkGroupID.x * BLOCK_ITEMS_N, (gl_WorkGroupID.x+1) * BLOCK_ITEMS_N);
+    sm_k_extent = ivec2(0, BLOCK_ITEMS_K);
+  }
+
+  barrier();
+
+  for (int tile_iter = 0; tile_iter < BLOCK_COUNT_K; ++tile_iter)
+  {
+    // First things first, copy over the data from global memory to the A_TILE and B_TILE
+    // fields of the SM structure.
+
+
+    // At the end of the loop, we need to make sure that all the threads have finished
+    // such that we can add the matrix which was calculated in thie iteration
+    // to the final matrix.
+    barrier();
+
+    // Perform accumulation
+    // TODO ...
+  }
+
+  // Perform accumulation to the final matrix which lives in global memory.
+  // TODO ...
+}
