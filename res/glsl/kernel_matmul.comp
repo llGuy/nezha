@@ -15,9 +15,9 @@
 // parameters:
 //
 // vkCmdDispatch(BLOCK_COUNT_N, BLOCK_COUNT_M, 1);
-#define SHAPE_M       (128)
-#define SHAPE_N       (64)
-#define SHAPE_K       (64)
+#define SHAPE_M       (640*640*3)
+#define SHAPE_N       (32)
+#define SHAPE_K       (32*3)
 
 #define BLOCK_ITEMS_M (64)
 #define BLOCK_ITEMS_N (32)

@@ -3,9 +3,9 @@
 #include <nezha/gpu_context.hpp>
 
 
-#define SHAPE_M       (128)
-#define SHAPE_N       (64)
-#define SHAPE_K       (64)
+#define SHAPE_M       (640*640*3)
+#define SHAPE_N       (32)
+#define SHAPE_K       (32*3)
 
 #define BLOCK_ITEMS_M (64)
 #define BLOCK_ITEMS_N (32)
@@ -43,16 +43,16 @@ void initialize_matrices(nz::render_graph &graph, graph_state &state)
   nz::memory_mapping map_a = graph.get_buffer(state.a).map();
   float *data = (float *)map_a.data();
   for (int i = 0; i < SHAPE_M * SHAPE_K; ++i)
-    data[i] = (float)(i%10);
+    data[i] = (float)(rand() % 1000) / 100.0f;
 
-  dump_matrix(data, SHAPE_M, SHAPE_K);
+  // dump_matrix(data, SHAPE_M, SHAPE_K);
 
   nz::memory_mapping map_b = graph.get_buffer(state.b).map();
   data = (float *)map_b.data();
-  for (int i = 0; i < SHAPE_K; ++i)
-    data[i + i * SHAPE_K] = 1.0f;
+  for (int i = 0; i < SHAPE_K * SHAPE_N; ++i)
+    data[i] = (float)(rand() % 1000) / 100.0f;
 
-  dump_matrix(data, SHAPE_K, SHAPE_N);
+  // dump_matrix(data, SHAPE_K, SHAPE_N);
 }
 
 void show_output(nz::render_graph &graph, graph_state &state)
@@ -60,12 +60,39 @@ void show_output(nz::render_graph &graph, graph_state &state)
   nz::memory_mapping map_out = graph.get_buffer(state.out).map();
   float *data = (float *)map_out.data();
 
-  dump_matrix(data, SHAPE_M, SHAPE_N);
+  // dump_matrix(data, SHAPE_M, SHAPE_N);
 }
 
 void test_output(nz::render_graph &graph, graph_state &state)
 {
-  
+  nz::memory_mapping map_a = graph.get_buffer(state.a).map();
+  float *a_data = (float *)map_a.data();
+
+  nz::memory_mapping map_b = graph.get_buffer(state.b).map();
+  float *b_data = (float *)map_b.data();
+
+  nz::memory_mapping map_out = graph.get_buffer(state.out).map();
+  float *out_data = (float *)map_out.data();
+
+  for (int y = 0; y < SHAPE_M; ++y)
+  {
+    for (int x = 0; x < SHAPE_N; ++x)
+    {
+      float output_from_gpu = out_data[x + y * SHAPE_N];
+
+      // Calculate dot product
+      float output_from_cpu = 0.0f;
+      for (int k = 0; k < SHAPE_K; ++k)
+      {
+        output_from_cpu += a_data[k + y * SHAPE_K] * b_data[x + k * SHAPE_N];
+      }
+
+      if (fabs(output_from_cpu - output_from_gpu) > 0.01f)
+      {
+        nz::log_error("Matrix multiply failed! %f vs %f", output_from_cpu, output_from_gpu);
+      }
+    }
+  }
 }
 
 int main(int argc, char **argv)
@@ -103,7 +130,7 @@ int main(int argc, char **argv)
 
   nz::log_info("Time %f", nz::time_difference(end, start));
 
-  show_output(graph, state);
+  test_output(graph, state);
 
   return 0;
 }
