@@ -15,16 +15,16 @@ COMPSPV := $(patsubst %,$(SPVDIR)%,$(COMPSOURCE:.comp=.comp.spv))
 all: $(VERTSPV) $(GEOMSPV) $(FRAGSPV) $(COMPSPV)
 	
 $(SPVDIR)%.vert.spv: %.vert
-	$(GLSLC) -c --target-env=vulkan1.1 -fshader-stage=vert -o $@ $^
+	$(GLSLC) -O -c --target-env=vulkan1.1 -fshader-stage=vert -o $@ $^
 
 $(SPVDIR)%.geom.spv: %.geom
-	$(GLSLC) -c --target-env=vulkan1.1 -fshader-stage=geom -o $@ $^
+	$(GLSLC) -O -c --target-env=vulkan1.1 -fshader-stage=geom -o $@ $^
 
 $(SPVDIR)%.frag.spv: %.frag
-	$(GLSLC) -c --target-env=vulkan1.1 -fshader-stage=frag -o $@ $^
+	$(GLSLC) -O -c --target-env=vulkan1.1 -fshader-stage=frag -o $@ $^
 
 $(SPVDIR)%.comp.spv: %.comp
-	$(GLSLC) -c --target-env=vulkan1.1 -fshader-stage=comp -o $@ $^
+	$(GLSLC) -O -c --target-env=vulkan1.1 -fshader-stage=comp -o $@ $^
 
 clean:
 	rm ../spv/*spv

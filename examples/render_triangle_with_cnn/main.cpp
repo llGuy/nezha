@@ -7,11 +7,11 @@
 
 #define MAX_FRAMES_IN_FLIGHT 2
 
-#define SHAPE_M       (64)
-#define SHAPE_N       (64)
-#define SHAPE_K       (64)
+#define SHAPE_M       (640*640*3)
+#define SHAPE_N       (32)
+#define SHAPE_K       (32*3)
 
-#define BLOCK_ITEMS_M (64)
+#define BLOCK_ITEMS_M (32)
 #define BLOCK_ITEMS_N (32)
 #define BLOCK_ITEMS_K (4)
 
@@ -20,55 +20,6 @@
 #define BLOCK_COUNT_M ((SHAPE_M + BLOCK_ITEMS_M - 1) / BLOCK_ITEMS_M)
 #define BLOCK_COUNT_N ((SHAPE_N + BLOCK_ITEMS_N - 1) / BLOCK_ITEMS_N)
 #define BLOCK_COUNT_K ((SHAPE_K + BLOCK_ITEMS_K - 1) / BLOCK_ITEMS_K)
-
-struct graph_state
-{
-  nz::compute_kernel kernel;
-  nz::gpu_buffer_ref a;
-  nz::gpu_buffer_ref b;
-  nz::gpu_buffer_ref out;
-};
-
-
-void dump_matrix(float *data, uint32_t h, uint32_t w)
-{
-  for (int y = 0; y < h; ++y)
-  {
-    for (int x = 0; x < w; ++x)
-    {
-      printf("%d ", (int)data[x+y*w]);
-    }
-
-    printf("\n");
-  }
-
-  printf("\n");
-}
-
-void initialize_matrices(nz::render_graph &graph, graph_state &state)
-{
-  nz::memory_mapping map_a = graph.get_buffer(state.a).map();
-  float *data = (float *)map_a.data();
-  for (int i = 0; i < SHAPE_M * SHAPE_K; ++i)
-    data[i] = (float)(i%10);
-
-  dump_matrix(data, SHAPE_M, SHAPE_K);
-
-  nz::memory_mapping map_b = graph.get_buffer(state.b).map();
-  data = (float *)map_b.data();
-  for (int i = 0; i < SHAPE_K; ++i)
-    data[i + i * SHAPE_K] = 1.0f;
-
-  dump_matrix(data, SHAPE_M, SHAPE_K);
-}
-
-void show_output(nz::render_graph &graph, graph_state &state)
-{
-  nz::memory_mapping map_out = graph.get_buffer(state.out).map();
-  float *data = (float *)map_out.data();
-
-  dump_matrix(data, SHAPE_M, SHAPE_N);
-}
 
 struct render_resources
 {
@@ -117,17 +68,25 @@ int main(int argc, char **argv)
     graph.placeholder_job()
   };
 
-  graph_state kstate;
-
-  kstate.kernel = graph.register_compute_kernel("kernel_matmul");
-  kstate.a = graph.register_buffer(
+  nz::compute_kernel kernel = graph.register_compute_kernel("kernel_matmul_4x_threads");
+  nz::gpu_buffer_ref mat_a = graph.register_buffer(
     { .size = SHAPE_M * SHAPE_K * sizeof(float), .host_visible = true, .type = nz::binding::type::storage_buffer });
-  kstate.b = graph.register_buffer(
+  nz::gpu_buffer_ref mat_b = graph.register_buffer(
     { .size = SHAPE_K * SHAPE_N * sizeof(float), .host_visible = true, .type = nz::binding::type::storage_buffer });
-  kstate.out = graph.register_buffer(
+  nz::gpu_buffer_ref mat_out = graph.register_buffer(
     { .size = SHAPE_M * SHAPE_N * sizeof(float), .host_visible = true });
 
-  initialize_matrices(graph, kstate);
+  { // Initialize mat a
+    nz::memory_mapping map_a = graph.get_buffer(mat_a).map();
+    float *data = (float *)map_a.data();
+    for (int i = 0; i < SHAPE_M * SHAPE_K; ++i)
+      data[i] = (float)i;
+
+    nz::memory_mapping map_b = graph.get_buffer(mat_b).map();
+    data = (float *)map_b.data();
+    for (int i = 0; i < SHAPE_K * SHAPE_N; ++i)
+      data[i] = (float)i;
+  }
 
   /* Check that the window is open. In this example application, we just keep
    * the application running until the user presses the X button. */
@@ -149,10 +108,10 @@ int main(int argc, char **argv)
     graph.begin();
     {
       graph.add_compute_pass()
-        .set_kernel(kstate.kernel)
-        .add_storage_buffer(kstate.a)
-        .add_storage_buffer(kstate.b)
-        .add_storage_buffer(kstate.out)
+        .set_kernel(kernel)
+        .add_storage_buffer(mat_a)
+        .add_storage_buffer(mat_b)
+        .add_storage_buffer(mat_out)
         .dispatch(BLOCK_COUNT_N, BLOCK_COUNT_M, 1);
 
       /* Start recording commands for this frame. */

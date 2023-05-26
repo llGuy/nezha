@@ -3,11 +3,17 @@
 #include <nezha/gpu_context.hpp>
 
 
+#if 0
+#define SHAPE_M       (640*640*3)
+#define SHAPE_N       (32)
+#define SHAPE_K       (32*3)
+#endif
+
 #define SHAPE_M       (640*640*3)
 #define SHAPE_N       (32)
 #define SHAPE_K       (32*3)
 
-#define BLOCK_ITEMS_M (64)
+#define BLOCK_ITEMS_M (32)
 #define BLOCK_ITEMS_N (32)
 #define BLOCK_ITEMS_K (4)
 
@@ -43,16 +49,13 @@ void initialize_matrices(nz::render_graph &graph, graph_state &state)
   nz::memory_mapping map_a = graph.get_buffer(state.a).map();
   float *data = (float *)map_a.data();
   for (int i = 0; i < SHAPE_M * SHAPE_K; ++i)
-    data[i] = (float)(rand() % 1000) / 100.0f;
-
-  // dump_matrix(data, SHAPE_M, SHAPE_K);
+    data[i] = (float)(rand() % 1000);
 
   nz::memory_mapping map_b = graph.get_buffer(state.b).map();
   data = (float *)map_b.data();
-  for (int i = 0; i < SHAPE_K * SHAPE_N; ++i)
-    data[i] = (float)(rand() % 1000) / 100.0f;
 
-  // dump_matrix(data, SHAPE_K, SHAPE_N);
+  for (int i = 0; i < SHAPE_K * SHAPE_N; ++i)
+    data[i] = (float)(rand() % 1000);
 }
 
 void show_output(nz::render_graph &graph, graph_state &state)
@@ -60,7 +63,7 @@ void show_output(nz::render_graph &graph, graph_state &state)
   nz::memory_mapping map_out = graph.get_buffer(state.out).map();
   float *data = (float *)map_out.data();
 
-  // dump_matrix(data, SHAPE_M, SHAPE_N);
+  dump_matrix(data, SHAPE_M, SHAPE_N);
 }
 
 void test_output(nz::render_graph &graph, graph_state &state)
@@ -102,7 +105,7 @@ int main(int argc, char **argv)
 
   graph_state state;
 
-  state.kernel = graph.register_compute_kernel("kernel_matmul");
+  state.kernel = graph.register_compute_kernel("kernel_matmul_4x_threads");
   state.a = graph.register_buffer(
     { .size = SHAPE_M * SHAPE_K * sizeof(float), .host_visible = true, .type = nz::binding::type::storage_buffer });
   state.b = graph.register_buffer(
@@ -130,6 +133,7 @@ int main(int argc, char **argv)
 
   nz::log_info("Time %f", nz::time_difference(end, start));
 
+  // show_output(graph, state);
   test_output(graph, state);
 
   return 0;
