@@ -3,13 +3,13 @@
 #include <nezha/gpu_context.hpp>
 
 
-#define SHAPE_M       (640*640)
-#define SHAPE_N       (32*32)
-#define SHAPE_K       (320)
+#define SHAPE_M       (640*640*3)
+#define SHAPE_N       (32)
+#define SHAPE_K       (32)
 
 #define BLOCK_ITEMS_M (64)
-#define BLOCK_ITEMS_N (32*2)
-#define BLOCK_ITEMS_K (20)
+#define BLOCK_ITEMS_N (32)
+#define BLOCK_ITEMS_K (4)
 
 // These are things which are derived from user defined values.
 // We round up the block items constants.

@@ -15,13 +15,13 @@
 // parameters:
 //
 // vkCmdDispatch(BLOCK_COUNT_N, BLOCK_COUNT_M, 1);
-#define SHAPE_M       (640*640)
-#define SHAPE_N       (32*32)
-#define SHAPE_K       (320)
+#define SHAPE_M       (640*640*3)
+#define SHAPE_N       (32)
+#define SHAPE_K       (32*3)
 
 #define BLOCK_ITEMS_M (64)
-#define BLOCK_ITEMS_N (32*2)
-#define BLOCK_ITEMS_K (20)
+#define BLOCK_ITEMS_N (32)
+#define BLOCK_ITEMS_K (4)
 
 // These are things which are derived from user defined values.
 // We round up the block items constants.
@@ -111,7 +111,7 @@ void add_mat4_to_output(in mat4 m, int x_start, int y_start)
   {
     for (int x = x_start; x < x_start + 4; ++x)
     {
-      sm.output_tile[collapse_2d(x, y, BLOCK_ITEMS_N)] = m[x-x_start][y-y_start];
+      sm.output_tile[collapse_2d(x, y, BLOCK_ITEMS_N)] += m[x-x_start][y-y_start];
     }
   }
 }
@@ -124,6 +124,18 @@ void copy_8x8_to_global_output(int n_offset, int m_offset, int x_start, int y_st
     {
       u_mat_out.data[collapse_2d(n_offset + x_start + x, m_offset + y_start + y, SHAPE_N)] =
         sm.output_tile[collapse_2d(x_start + x, y_start + y, BLOCK_ITEMS_N)];
+    }
+  }
+}
+
+void copy_mat4_to_global_output(in mat4 m, int n_offset, int m_offset)
+{
+  for (int y = 0; y < 4; ++y)
+  {
+    for (int x = 0; x < 4; ++x)
+    {
+      u_mat_out.data[collapse_2d(n_offset + x, m_offset + y, SHAPE_N)] =
+        m[x][y];
     }
   }
 }
@@ -150,6 +162,11 @@ void main()
 
   int float_offset_m = warp_local_thread_m * 4 + num_floats_m * (int(gl_LocalInvocationID.y)/8);
   int float_offset_n = warp_local_thread_n * 4 + num_floats_n * (int(gl_LocalInvocationID.x)/4);
+
+  mat4 res_a0b0 = mat4(0.0);
+  mat4 res_a0b1 = mat4(0.0);
+  mat4 res_a1b0 = mat4(0.0);
+  mat4 res_a1b1 = mat4(0.0);
 
   for (int k_i = 0; k_i < BLOCK_COUNT_K; ++k_i)
   {
@@ -202,21 +219,17 @@ void main()
                      sm.b_tile[collapse_2d(float_offset_n + (num_floats_n/2) + 2, float_offset_k, BLOCK_ITEMS_N)],
                      sm.b_tile[collapse_2d(float_offset_n + (num_floats_n/2) + 3, float_offset_k, BLOCK_ITEMS_N)]);
 
-      mat4 res = outerProduct(a0, b0);
-      add_mat4_to_output(res, float_offset_n, float_offset_m);
-
-      res = outerProduct(a0, b1);
-      add_mat4_to_output(res, float_offset_n + (num_floats_n/2), float_offset_m);
-
-      res = outerProduct(a1, b0);
-      add_mat4_to_output(res, float_offset_n, float_offset_m + (num_floats_m/2));
-
-      res = outerProduct(a1, b1);
-      add_mat4_to_output(res, float_offset_n + (num_floats_n/2), float_offset_m + (num_floats_m/2));
+      res_a0b0 += outerProduct(a0, b0);
+      res_a0b1 += outerProduct(a0, b1);
+      res_a1b0 = outerProduct(a1, b0);
+      res_a1b1 = outerProduct(a1, b1);
     }
 
     barrier();
   }
 
-  copy_8x8_to_global_output(n_start, m_start, local_idx_start_x, local_idx_start_y);
+  copy_mat4_to_global_output(res_a0b0, n_start + float_offset_n, m_start + float_offset_m);
+  copy_mat4_to_global_output(res_a0b1, n_start + float_offset_n + (num_floats_n/2), m_start + float_offset_m);
+  copy_mat4_to_global_output(res_a1b0, n_start + float_offset_n, m_start + float_offset_m + (num_floats_m/2));
+  copy_mat4_to_global_output(res_a1b1, n_start + float_offset_n + (num_floats_n/2), m_start + float_offset_m + (num_floats_m/2));
 }
