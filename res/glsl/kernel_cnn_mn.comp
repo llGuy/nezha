@@ -1,0 +1,109 @@
+#version 450
+
+
+#include "nezha.glsl"
+
+
+layout (local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+
+BEGIN_SEND_DATA()
+  int p;
+  int q;
+  int k;
+  int c;
+  int r;
+  int s;
+  int h;
+  int w;
+
+  int stride_h;
+  int pad_h;
+  int stride_w;
+  int pad_w;
+END_SEND_DATA(shape_info);
+
+
+BEGIN_STORAGE_BUFFER(0, 0, input_data)
+  float data[]; /* Array of N elements. */
+END_STORAGE_BUFFER(uinput);
+
+
+BEGIN_STORAGE_BUFFER(1, 0, weight_data)
+  float data[]; /* Array of N elements. */
+END_STORAGE_BUFFER(uweight);
+
+
+BEGIN_STORAGE_BUFFER(2, 0, output_data)
+  float data[]; /* Array of N elements. */
+END_STORAGE_BUFFER(uoutput);
+
+
+int f(int p, int r) 
+{
+  // return p * shape_info.stride_h + shape_info.r - r - 1 + shape_info.pad_h;
+  return p * shape_info.stride_h + r - shape_info.pad_h;
+}
+
+int g(int q, int s)
+{
+  // return q * shape_info.stride_w + shape_info.s - s - 1 + shape_info.pad_w;
+  return q * shape_info.stride_w + s - shape_info.pad_w;
+}
+
+
+int linearize_3d_with_pad(int x, int y, int z, int X, int Y)
+{
+  if (x < 0) x = 0;
+  else if (x > X-1) x = X-1;
+
+  if (y < 0) y = 0;
+  else if (y > Y-1) y = Y-1;
+
+  return x + X * (y + Y * z);
+}
+
+
+int linearize_4d(int x, int y, int z, int w, int Y, int Z, int W)
+{
+  return x * Y * Z * W + y * Z * W + z * W + w;
+}
+
+
+void main()
+{
+  int gemm_i = int(gl_WorkGroupID.x);
+  int gemm_j = int(gl_WorkGroupID.y);
+  int gemm_k = int(gl_LocalInvocationID.x);
+
+  int n = gemm_i / (shape_info.p * shape_info.q);
+  int npq_residual = gemm_i % (shape_info.p * shape_info.q);
+
+  int p = npq_residual / shape_info.q;
+  int q = npq_residual % shape_info.q;
+
+  int k = gemm_j;
+
+  int c = gemm_k / (shape_info.r * shape_info.s);
+  int crs_residual = gemm_k % (shape_info.r * shape_info.s);
+
+  int r = crs_residual / shape_info.s;
+  int s = crs_residual % shape_info.s;
+
+  int h = f(p, r);
+  int w = g(q, s);
+
+  float result = 0.0;
+
+  if (gl_LocalInvocationID.x < 27)
+  {
+    float a = uinput.data[linearize_3d_with_pad(h, w, c, shape_info.h, shape_info.w)];
+    float b = uweight.data[linearize_4d(k, r, s, c, shape_info.r, shape_info.s, shape_info.c)];
+    result = a * b;
+  }
+
+  float final_result = subgroupAdd(result);
+
+  if (gl_LocalInvocationID.x == 0)
+    uoutput.data[gemm_i * shape_info.k + gemm_j] = final_result;
+}
