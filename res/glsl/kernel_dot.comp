@@ -1,0 +1,25 @@
+#version 450
+
+#include "nezha.glsl"
+
+layout (local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+BEGIN_STORAGE_BUFFER(0, 0, in_vec_1)
+	float vec[];
+END_STORAGE_BUFFER(in_vec1);
+
+BEGIN_STORAGE_BUFFER(0, 1, in_vec_2)
+	float vec[];
+END_STORAGE_BUFFER(in_vec2);
+
+void main ()
+{
+	uint i = gl_GlobalInvocationID.x;
+	float dot_terms = in_vec1.vec[i] * in_vec2.vec[i];
+	float sum = subgroupAdd(dot_terms);
+	
+	if (i % 32 == 0) 
+		{
+			in_vec1.vec[i] = sum;
+		}
+}

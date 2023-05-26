@@ -16,17 +16,18 @@
 //
 // vkCmdDispatch(BLOCK_COUNT_N, BLOCK_COUNT_M, 1);
 #define SHAPE_M       (0x1000)
-#define SHAPE_K       (0x1000)
 #define SHAPE_N       (0x1000)
-#define BLOCK_COUNT_M (0x1000)
-#define BLOCK_COUNT_N (0x1000)
-#define BLOCK_COUNT_K (0x1000)
+#define SHAPE_K       (0x1000)
+
+#define BLOCK_ITEMS_M (0x1000)
+#define BLOCK_ITEMS_N (0x1000)
+#define BLOCK_ITEMS_K (0x1000)
 
 // These are things which are derived from user defined values.
 // We round up the block items constants.
-#define BLOCK_ITEMS_M ((SHAPE_M+BLOCK_COUNT_M-1) / BLOCK_COUNT_M)
-#define BLOCK_ITEMS_K ((SHAPE_K+BLOCK_COUNT_K-1) / BLOCK_COUNT_K)
-#define BLOCK_ITEMS_N ((SHAPE_N+BLOCK_COUNT_N-1) / BLOCK_COUNT_N)
+#define BLOCK_COUNT_M ((SHAPE_M + BLOCK_ITEMS_M - 1) / BLOCK_ITEMS_M)
+#define BLOCK_COUNT_N ((SHAPE_N + BLOCK_ITEMS_N - 1) / BLOCK_ITEMS_N)
+#define BLOCK_COUNT_K ((SHAPE_K + BLOCK_ITEMS_K - 1) / BLOCK_ITEMS_K)
 
 // Shared memory constants. We can precompute how much space is required
 // for the output, the input A and the input B.
@@ -46,56 +47,95 @@
 // 4 threads), we can process 2 vec4's -> 8 floats. Therefore, we can
 // process 64 floats in the M direction and 32 floats in the N direction.
 #define WARP_SIZE 32
-#define NUM_WARPS_M ((BLOCK_ITEMS_M+63) / 64)
-#define NUM_WARPS_N ((BLOCK_ITEMS_N+31) / 32)
-#define THREADS_PER_THREADGROUP (NUM_WARPS_M * NUM_WARPS_N * WARP_SIZE)
+#define NUM_WARPS_M_PER_THREADGROUP (BLOCK_ITEMS_M / 64)
+#define NUM_WARPS_N_PER_THREADGROUP (BLOCK_ITEMS_N / 32)
+#define THREADS_PER_THREADGROUP (NUM_WARPS_M_PER_THREADGROUP * NUM_WARPS_N_PER_THREADGROUP * WARP_SIZE)
+
+// Number of threads in each direction, within a threadgroup.
+#define NUM_THREADS_M_PER_THREADGROUP (NUM_WARPS_M_PER_THREADGROUP * 8)
+#define NUM_THREADS_N_PER_THREADGROUP (NUM_WARPS_N_PER_THREADGROUP * 4)
 
 // We can calculate how many threads there are in each direction
 // of a threadgroup by using the warp count calculated for a
 // threadgroup.
-layout (local_size_x = NUM_WARPS_N * WARP_SIZE, 
-        local_size_y = NUM_WARPS_M * WARP_SIZE, 1) in;
+layout (local_size_x = NUM_THREADS_N_PER_THREADGROUP,
+        local_size_y = NUM_THREADS_M_PER_THREADGROUP, 
+        local_size_z = 1) in;
+
+// Global memory: the input matrices live here. This shader computes
+// A (M x K) * B (K x N) = C (M x N).
+
+// size: M * K stored in row-major order.
+layout (set = 0, binding = 0) buffer in_mat_a 
+{
+  float data[]; 
+} u_mat_a;
+
+// size: K * N stored in row-major order.
+layout (set = 1, binding = 0) buffer in_mat_b 
+{
+	float data[]; 
+} u_mat_b;
 
 // We have calculated how many floats from the inputs we need for the
 // shared memory buffer.
-shared struct {
-  // Just share the float/data extent that the threadgroup will be dealing with.
-  ivec2 m_extent;
-  ivec2 n_extent;
-  ivec2 k_extent;
-
+shared struct 
+{
   // This will contain the output of the tile matrix multiply.
   float output_tile[BLOCK_ITEMS_M * BLOCK_ITEMS_N];
 
-  // At each iteration, we calculate the result of the matrix from the given
-  // float fragments (to explain later in code) and add the result of the
-  // TEMPORARY_TILE to the OUTPUT_TILE.
-  float temporary_tile[BLOCK_ITEMS_M * BLOCK_ITEMS_N];
-
-  // This will contain the loaded values from the tile in the A matrix (MxK).
-  float a_tile[BLOCK_ITEMS_M * BLOCK_ITEMS_K];
-
-  // This will contain the loaded values from the tile in the B matrix (KxN).
-  float b_tile[BLOCK_ITEMS_K * BLOCK_ITEMS_N];
+  // These arrays in shared memory will contain the tiles corresponding to the
+  // tile computation. These arrays will be used to accumulate output_tile.
+  float a_tile[BLOCK_ITEMS_M * BLOCK_ITEMS_K]; // Contains a tile loaded from
+                                               // matrix A (M x K).
+  float b_tile[BLOCK_ITEMS_K * BLOCK_ITEMS_N]; // Contains a tile loaded from
+                                               // matrix B (K x N).
 } sm;
+
+int collapse_2d(int x, int y, int row_len)
+{
+  return y * row_len + x;
+}
 
 // Here, we need to loop through each tile in the A and B matrices which correspond
 // to the output tile we are trying to calculate right now in this threadgroup.
 // The amount of times we need to perform the loop is BLOCK_COUNT_K.
 void main()
 {
-  // Calculate the index ranges that this threadgroup will deal with.
-  if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0)
-  {
-    sm.m_extent = ivec2(gl_WorkGroupID.y * BLOCK_ITEMS_M, (gl_WorkGroupID.y+1) * BLOCK_ITEMS_M);
-    sm.n_extent = ivec2(gl_WorkGroupID.x * BLOCK_ITEMS_N, (gl_WorkGroupID.x+1) * BLOCK_ITEMS_N);
-    sm_k_extent = ivec2(0, BLOCK_ITEMS_K);
-  }
+  float m_start = gl_WorkGroupID.y * BLOCK_ITEMS_M;
+  float n_start = gl_WorkGroupID.x * BLOCK_ITEMS_N;
 
-  barrier();
-
-  for (int tile_iter = 0; tile_iter < BLOCK_COUNT_K; ++tile_iter)
+  for (int k_i = 0; k_i < BLOCK_COUNT_K; ++k_i)
   {
+    float k_start = i * BLOCK_ITEMS_K;
+
+    // Copying into b_tile
+    for (int y = gl_LocalInvocationID.y; y < BLOCK_ITEMS_K; y += NUM_THREADS_M_PER_THREADGROUP)
+    {
+      int local_idx_start_x   = gl_LocalInvocationID.x * 8;
+      int local_idx_end_x     = (gl_LocalInvocationID.x + 1) * 8;
+
+      for (int x = local_idx_start_x; x < local_idx_end_x; ++x)
+      {
+        sm.b_tile[collapse2d(x, y, BLOCK_ITEMS_N)] = 
+          u_mat_b.data[collapse2d(x + n_start, y + k_start, SHAPE_N)];
+      }
+    }
+
+    // Copying into a_tile
+    for (int x = gl_LocalInvocationID.x; x < BLOCK_ITEMS_K; x += NUM_THREADS_N_PER_THREADGROUP)
+    {
+      int local_idx_start_y   = gl_LocalInvocationID.y * 8;
+      int local_idx_end_y     = (gl_LocalInvocationID.y + 1) * 8;
+
+      for (int y = local_idx_start_y; y < local_idx_end_y; ++y)
+      {
+        sm.a_tile[collapse2d(x, y, BLOCK_ITEMS_K)] = 
+          u_mat_a.data[collapse2d(x + k_start, y + m_start, SHAPE_K)];
+      }
+    }
+
+                  
     // First things first, copy over the data from global memory to the A_TILE and B_TILE
     // fields of the SM structure.
 
