@@ -7,33 +7,25 @@
 
 #include "nezha.glsl"
 
-// These are placeholder values right now and are in the future to be
-// initialized by the user who may require a specific shape for A and B
-// as well as configuring the block count in each direction.
-//
-// The user will have to dispatch this compute shader with the following
-// parameters:
-//
-// vkCmdDispatch(BLOCK_COUNT_N, BLOCK_COUNT_M, 1);
-#define SHAPE_M       (640*640*3)
-#define SHAPE_N       (32)
-#define SHAPE_K       (32*3)
+const int SHAPE_M     = (640*640*3);
+const int SHAPE_N     = (32);
+const int SHAPE_K     = (32*3);
 
-#define BLOCK_ITEMS_M (64)
-#define BLOCK_ITEMS_N (32)
-#define BLOCK_ITEMS_K (4)
+const int BLOCK_ITEMS_M = (128);
+const int BLOCK_ITEMS_N = (32);
+const int BLOCK_ITEMS_K = (4); // 4 IS OPTIMAL
 
 // These are things which are derived from user defined values.
 // We round up the block items constants.
-#define BLOCK_COUNT_M ((SHAPE_M + BLOCK_ITEMS_M - 1) / BLOCK_ITEMS_M)
-#define BLOCK_COUNT_N ((SHAPE_N + BLOCK_ITEMS_N - 1) / BLOCK_ITEMS_N)
-#define BLOCK_COUNT_K ((SHAPE_K + BLOCK_ITEMS_K - 1) / BLOCK_ITEMS_K)
+const int BLOCK_COUNT_M = ((SHAPE_M + BLOCK_ITEMS_M - 1) / BLOCK_ITEMS_M);
+const int BLOCK_COUNT_N = ((SHAPE_N + BLOCK_ITEMS_N - 1) / BLOCK_ITEMS_N);
+const int BLOCK_COUNT_K = ((SHAPE_K + BLOCK_ITEMS_K - 1) / BLOCK_ITEMS_K);
 
 // Shared memory constants. We can precompute how much space is required
 // for the output, the input A and the input B.
-#define SM_OUTPUT_SIZE       (BLOCK_ITEMS_N * BLOCK_ITEMS_M)
-#define SM_INPUT_A_TILE_SIZE (BLOCK_ITEMS_K * BLOCK_ITEMS_M)
-#define SM_INPUT_B_TILE_SIZE (BLOCK_ITEMS_K * BLOCK_ITEMS_N)
+const int SM_OUTPUT_SIZE       = (BLOCK_ITEMS_N * BLOCK_ITEMS_M);
+const int SM_INPUT_A_TILE_SIZE = (BLOCK_ITEMS_K * BLOCK_ITEMS_M);
+const int SM_INPUT_B_TILE_SIZE = (BLOCK_ITEMS_K * BLOCK_ITEMS_N);
 
 // Some constants for warp level parallelism and configuration. Here,
 // each warp in the M direction (Y direction) can process 64 floats
@@ -46,17 +38,17 @@
 // threads), we can process 2 vec4's -> 8 floats. In the N direction (with
 // 4 threads), we can process 2 vec4's -> 8 floats. Therefore, we can
 // process 64 floats in the M direction and 32 floats in the N direction.
-#define WARP_SIZE 32
-#define NUM_WARPS_M_PER_THREADGROUP (BLOCK_ITEMS_M / 64)
-#define NUM_WARPS_N_PER_THREADGROUP (BLOCK_ITEMS_N / 32)
-#define THREADS_PER_THREADGROUP (NUM_WARPS_M_PER_THREADGROUP * NUM_WARPS_N_PER_THREADGROUP * WARP_SIZE)
+const int WARP_SIZE                   = 32;
+const int NUM_WARPS_M_PER_THREADGROUP = (BLOCK_ITEMS_M / 32);
+const int NUM_WARPS_N_PER_THREADGROUP = (BLOCK_ITEMS_N / 16);
+const int THREADS_PER_THREADGROUP     = (NUM_WARPS_M_PER_THREADGROUP * NUM_WARPS_N_PER_THREADGROUP * WARP_SIZE);
 
 // Number of threads in each direction, within a threadgroup.
-#define NUM_THREADS_M_PER_THREADGROUP (NUM_WARPS_M_PER_THREADGROUP * 8)
-#define NUM_THREADS_N_PER_THREADGROUP (NUM_WARPS_N_PER_THREADGROUP * 4)
+const int NUM_THREADS_M_PER_THREADGROUP = (NUM_WARPS_M_PER_THREADGROUP * 8);
+const int NUM_THREADS_N_PER_THREADGROUP = (NUM_WARPS_N_PER_THREADGROUP * 4);
 
-#define NUM_THREADS_IN_WARP_M 8
-#define NUM_THREADS_IN_WARP_N 4
+const int NUM_THREADS_IN_WARP_M = 8;
+const int NUM_THREADS_IN_WARP_N = 4;
 
 // We can calculate how many threads there are in each direction
 // of a threadgroup by using the warp count calculated for a

@@ -7,19 +7,19 @@
 
 #define MAX_FRAMES_IN_FLIGHT 2
 
-#define SHAPE_M       (640*640*3)
-#define SHAPE_N       (32)
-#define SHAPE_K       (32*3)
+const int SHAPE_M      = (640*640*3);
+const int SHAPE_N      = (32);
+const int SHAPE_K      = (32*3);
 
-#define BLOCK_ITEMS_M (32)
-#define BLOCK_ITEMS_N (32)
-#define BLOCK_ITEMS_K (4)
+const int BLOCK_ITEMS_M = (64);
+const int BLOCK_ITEMS_N = (32);
+const int BLOCK_ITEMS_K = (4);
 
 // These are things which are derived from user defined values.
 // We round up the block items constants.
-#define BLOCK_COUNT_M ((SHAPE_M + BLOCK_ITEMS_M - 1) / BLOCK_ITEMS_M)
-#define BLOCK_COUNT_N ((SHAPE_N + BLOCK_ITEMS_N - 1) / BLOCK_ITEMS_N)
-#define BLOCK_COUNT_K ((SHAPE_K + BLOCK_ITEMS_K - 1) / BLOCK_ITEMS_K)
+const int BLOCK_COUNT_M = ((SHAPE_M + BLOCK_ITEMS_M - 1) / BLOCK_ITEMS_M);
+const int BLOCK_COUNT_N = ((SHAPE_N + BLOCK_ITEMS_N - 1) / BLOCK_ITEMS_N);
+const int BLOCK_COUNT_K = ((SHAPE_K + BLOCK_ITEMS_K - 1) / BLOCK_ITEMS_K);
 
 struct render_resources
 {
@@ -68,7 +68,7 @@ int main(int argc, char **argv)
     graph.placeholder_job()
   };
 
-  nz::compute_kernel kernel = graph.register_compute_kernel("kernel_matmul_4x_threads");
+  nz::compute_kernel kernel = graph.register_compute_kernel("kernel_matmul_8x_threads");
   nz::gpu_buffer_ref mat_a = graph.register_buffer(
     { .size = SHAPE_M * SHAPE_K * sizeof(float), .host_visible = true, .type = nz::binding::type::storage_buffer });
   nz::gpu_buffer_ref mat_b = graph.register_buffer(
@@ -149,7 +149,7 @@ int main(int argc, char **argv)
     nz::time_stamp t_end = nz::current_time();
     state.dt = nz::time_difference(t_end, t_start);
 
-    nz::log_info("Time %f", 1.0f/state.dt);
+    nz::log_info("(%d) (%d) (%d) Time %f", BLOCK_ITEMS_M, BLOCK_ITEMS_N, BLOCK_ITEMS_K, 1.0f/state.dt);
   }
 
   return 0;
