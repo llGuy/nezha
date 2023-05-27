@@ -93,40 +93,17 @@ layout (set = 2, binding = 0) buffer out_mat
 shared struct 
 {
   // This will contain the output of the tile matrix multiply.
-  float output_tile[BLOCK_ITEMS_M * BLOCK_ITEMS_N];
+  float output_tile[BLOCK_ITEMS_M][BLOCK_ITEMS_N];
 
   // These arrays in shared memory will contain the tiles corresponding to the
   // tile computation. These arrays will be used to accumulate output_tile.
-  float a_tile[BLOCK_ITEMS_M * BLOCK_ITEMS_K]; // Contains a tile loaded from
+  float a_tile[BLOCK_ITEMS_M][BLOCK_ITEMS_K]; // Contains a tile loaded from
                                                // matrix A (M x K).
-  float b_tile[BLOCK_ITEMS_K * BLOCK_ITEMS_N]; // Contains a tile loaded from
+  float b_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_N]; // Contains a tile loaded from
                                                // matrix B (K x N).
 } sm;
 
 #define collapse_2d(x, y, row_len) ((x) + (y) * (row_len))
-
-void add_mat4_to_output(in mat4 m, int x_start, int y_start)
-{
-  for (int y = y_start; y < y_start + 4; ++y)
-  {
-    for (int x = x_start; x < x_start + 4; ++x)
-    {
-      sm.output_tile[collapse_2d(x, y, BLOCK_ITEMS_N)] += m[x-x_start][y-y_start];
-    }
-  }
-}
-
-void copy_8x8_to_global_output(int n_offset, int m_offset, int x_start, int y_start)
-{
-  for (int y = 0; y < 8; ++y)
-  {
-    for (int x = 0; x < 8; ++x)
-    {
-      u_mat_out.data[collapse_2d(n_offset + x_start + x, m_offset + y_start + y, SHAPE_N)] =
-        sm.output_tile[collapse_2d(x_start + x, y_start + y, BLOCK_ITEMS_N)];
-    }
-  }
-}
 
 void copy_mat4_to_global_output(in mat4 m, int n_offset, int m_offset)
 {
@@ -134,8 +111,7 @@ void copy_mat4_to_global_output(in mat4 m, int n_offset, int m_offset)
   {
     for (int x = 0; x < 4; ++x)
     {
-      u_mat_out.data[collapse_2d(n_offset + x, m_offset + y, SHAPE_N)] =
-        m[x][y];
+      u_mat_out.data[collapse_2d(n_offset + x, m_offset + y, SHAPE_N)] = m[x][y];
     }
   }
 }
@@ -175,27 +151,27 @@ void main()
     // Copying into b_tile
     for (int y = int(gl_LocalInvocationID.y); y < BLOCK_ITEMS_K; y += NUM_THREADS_M_PER_THREADGROUP)
     {
-      sm.b_tile[collapse_2d(local_idx_start_x + 0, y, BLOCK_ITEMS_N)] = 
-        u_mat_b.data[collapse_2d(local_idx_start_x + 0 + n_start, y + k_start, SHAPE_N)];
-      sm.b_tile[collapse_2d(local_idx_start_x + 1, y, BLOCK_ITEMS_N)] = 
-        u_mat_b.data[collapse_2d(local_idx_start_x + 1 + n_start, y + k_start, SHAPE_N)];
-      sm.b_tile[collapse_2d(local_idx_start_x + 2, y, BLOCK_ITEMS_N)] = 
-        u_mat_b.data[collapse_2d(local_idx_start_x + 2 + n_start, y + k_start, SHAPE_N)];
-      sm.b_tile[collapse_2d(local_idx_start_x + 3, y, BLOCK_ITEMS_N)] = 
-        u_mat_b.data[collapse_2d(local_idx_start_x + 3 + n_start, y + k_start, SHAPE_N)];
+      int tmp_y_off = local_idx_start_x + n_start + (y+k_start)*SHAPE_N;
+#if 0
+      sm.b_tile[y][local_idx_start_x + 0] = u_mat_b.data[collapse_2d(local_idx_start_x + 0 + n_start, y + k_start, SHAPE_N)];
+      sm.b_tile[y][local_idx_start_x + 1] = u_mat_b.data[collapse_2d(local_idx_start_x + 1 + n_start, y + k_start, SHAPE_N)];
+      sm.b_tile[y][local_idx_start_x + 2] = u_mat_b.data[collapse_2d(local_idx_start_x + 2 + n_start, y + k_start, SHAPE_N)];
+      sm.b_tile[y][local_idx_start_x + 3] = u_mat_b.data[collapse_2d(local_idx_start_x + 3 + n_start, y + k_start, SHAPE_N)];
+#endif
+      sm.b_tile[y][local_idx_start_x + 0] = u_mat_b.data[0 + tmp_y_off];
+      sm.b_tile[y][local_idx_start_x + 1] = u_mat_b.data[1 + tmp_y_off];
+      sm.b_tile[y][local_idx_start_x + 2] = u_mat_b.data[2 + tmp_y_off];
+      sm.b_tile[y][local_idx_start_x + 3] = u_mat_b.data[3 + tmp_y_off];
     }
 
     // Copying into a_tile - column major
     for (int x = int(gl_LocalInvocationID.x); x < BLOCK_ITEMS_K; x += NUM_THREADS_N_PER_THREADGROUP)
     {
-      sm.a_tile[collapse_2d(x, local_idx_start_y + 0, BLOCK_ITEMS_K)] = 
-        u_mat_a.data[collapse_2d(x + k_start, local_idx_start_y + 0 + m_start, SHAPE_K)];
-      sm.a_tile[collapse_2d(x, local_idx_start_y + 1, BLOCK_ITEMS_K)] = 
-        u_mat_a.data[collapse_2d(x + k_start, local_idx_start_y + 1 + m_start, SHAPE_K)];
-      sm.a_tile[collapse_2d(x, local_idx_start_y + 2, BLOCK_ITEMS_K)] = 
-        u_mat_a.data[collapse_2d(x + k_start, local_idx_start_y + 2 + m_start, SHAPE_K)];
-      sm.a_tile[collapse_2d(x, local_idx_start_y + 3, BLOCK_ITEMS_K)] = 
-        u_mat_a.data[collapse_2d(x + k_start, local_idx_start_y + 3 + m_start, SHAPE_K)];
+      int tmp_x = (x+k_start) + (local_idx_start_y + m_start) * SHAPE_K;
+      sm.a_tile[local_idx_start_y + 0][x] = u_mat_a.data[tmp_x + SHAPE_K*0];
+      sm.a_tile[local_idx_start_y + 1][x] = u_mat_a.data[tmp_x + SHAPE_K*1];
+      sm.a_tile[local_idx_start_y + 2][x] = u_mat_a.data[tmp_x + SHAPE_K*2];
+      sm.a_tile[local_idx_start_y + 3][x] = u_mat_a.data[tmp_x + SHAPE_K*3];
     }
 
     barrier();
@@ -205,22 +181,21 @@ void main()
       // Top left corner
       int float_offset_k = item;
 
-      vec4 a0 = vec4(sm.a_tile[collapse_2d(float_offset_k, float_offset_m + 0, BLOCK_ITEMS_K)],
-                     sm.a_tile[collapse_2d(float_offset_k, float_offset_m + 1, BLOCK_ITEMS_K)],
-                     sm.a_tile[collapse_2d(float_offset_k, float_offset_m + 2, BLOCK_ITEMS_K)],
-                     sm.a_tile[collapse_2d(float_offset_k, float_offset_m + 3, BLOCK_ITEMS_K)]);
+      vec4 a0 = vec4(sm.a_tile[float_offset_m + 0][float_offset_k],
+                     sm.a_tile[float_offset_m + 1][float_offset_k],
+                     sm.a_tile[float_offset_m + 2][float_offset_k],
+                     sm.a_tile[float_offset_m + 3][float_offset_k]);
 
-      vec4 b0 = vec4(sm.b_tile[collapse_2d(float_offset_n + 0, float_offset_k, BLOCK_ITEMS_N)],
-                     sm.b_tile[collapse_2d(float_offset_n + 1, float_offset_k, BLOCK_ITEMS_N)],
-                     sm.b_tile[collapse_2d(float_offset_n + 2, float_offset_k, BLOCK_ITEMS_N)],
-                     sm.b_tile[collapse_2d(float_offset_n + 3, float_offset_k, BLOCK_ITEMS_N)]);
+      vec4 b0 = vec4(sm.b_tile[float_offset_k][float_offset_n + 0],
+                     sm.b_tile[float_offset_k][float_offset_n + 1],
+                     sm.b_tile[float_offset_k][float_offset_n + 2],
+                     sm.b_tile[float_offset_k][float_offset_n + 3]);
 
       res_a0b0 += outerProduct(a0, b0);
     }
 
     barrier();
   }
-
 
   copy_mat4_to_global_output(res_a0b0, n_start + float_offset_n, m_start + float_offset_m);
 }
