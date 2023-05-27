@@ -11,9 +11,9 @@ const int SHAPE_M     = (640*640*3);
 const int SHAPE_N     = (32);
 const int SHAPE_K     = (32*3);
 
-const int BLOCK_ITEMS_M = (128);
+const int BLOCK_ITEMS_M = (64);
 const int BLOCK_ITEMS_N = (32);
-const int BLOCK_ITEMS_K = (4); // 4 IS OPTIMAL
+const int BLOCK_ITEMS_K = (8); // 4 IS OPTIMAL
 
 // These are things which are derived from user defined values.
 // We round up the block items constants.

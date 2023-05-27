@@ -17,26 +17,26 @@
 // vkCmdDispatch(BLOCK_COUNT_N, BLOCK_COUNT_M, 1);
 
 
-const int SHAPE_M     = (640*640*3);
-const int SHAPE_N     = (32);
-const int SHAPE_K     = (32*3);
+const uint SHAPE_M     = (640*640*3);
+const uint SHAPE_N     = (32);
+const uint SHAPE_K     = (32*3);
 
 
-const int BLOCK_ITEMS_M = (64);
-const int BLOCK_ITEMS_N = (32);
-const int BLOCK_ITEMS_K = (4); // 4 IS OPTIMAL
+const uint BLOCK_ITEMS_M = (64);
+const uint BLOCK_ITEMS_N = (32);
+const uint BLOCK_ITEMS_K = (8); // 4 IS OPTIMAL
 
 // These are things which are derived from user defined values.
 // We round up the block items constants.
-const int BLOCK_COUNT_M = ((SHAPE_M + BLOCK_ITEMS_M - 1) / BLOCK_ITEMS_M);
-const int BLOCK_COUNT_N = ((SHAPE_N + BLOCK_ITEMS_N - 1) / BLOCK_ITEMS_N);
-const int BLOCK_COUNT_K = ((SHAPE_K + BLOCK_ITEMS_K - 1) / BLOCK_ITEMS_K);
+const uint BLOCK_COUNT_M = ((SHAPE_M + BLOCK_ITEMS_M - 1) / BLOCK_ITEMS_M);
+const uint BLOCK_COUNT_N = ((SHAPE_N + BLOCK_ITEMS_N - 1) / BLOCK_ITEMS_N);
+const uint BLOCK_COUNT_K = ((SHAPE_K + BLOCK_ITEMS_K - 1) / BLOCK_ITEMS_K);
 
 // Shared memory constants. We can precompute how much space is required
 // for the output, the input A and the input B.
-const int SM_OUTPUT_SIZE       = (BLOCK_ITEMS_N * BLOCK_ITEMS_M);
-const int SM_INPUT_A_TILE_SIZE = (BLOCK_ITEMS_K * BLOCK_ITEMS_M);
-const int SM_INPUT_B_TILE_SIZE = (BLOCK_ITEMS_K * BLOCK_ITEMS_N);
+const uint SM_OUTPUT_SIZE       = (BLOCK_ITEMS_N * BLOCK_ITEMS_M);
+const uint SM_INPUT_A_TILE_SIZE = (BLOCK_ITEMS_K * BLOCK_ITEMS_M);
+const uint SM_INPUT_B_TILE_SIZE = (BLOCK_ITEMS_K * BLOCK_ITEMS_N);
 
 // Some constants for warp level parallelism and configuration. Here,
 // each warp in the M direction (Y direction) can process 64 floats
@@ -49,17 +49,17 @@ const int SM_INPUT_B_TILE_SIZE = (BLOCK_ITEMS_K * BLOCK_ITEMS_N);
 // threads), we can process 2 vec4's -> 8 floats. In the N direction (with
 // 4 threads), we can process 2 vec4's -> 8 floats. Therefore, we can
 // process 64 floats in the M direction and 32 floats in the N direction.
-const int WARP_SIZE                   = 32;
-const int NUM_WARPS_M_PER_THREADGROUP = (BLOCK_ITEMS_M / 32);
-const int NUM_WARPS_N_PER_THREADGROUP = (BLOCK_ITEMS_N / 16);
-const int THREADS_PER_THREADGROUP     = (NUM_WARPS_M_PER_THREADGROUP * NUM_WARPS_N_PER_THREADGROUP * WARP_SIZE);
+const uint WARP_SIZE                   = 32;
+const uint NUM_WARPS_M_PER_THREADGROUP = (BLOCK_ITEMS_M / 32);
+const uint NUM_WARPS_N_PER_THREADGROUP = (BLOCK_ITEMS_N / 16);
+const uint THREADS_PER_THREADGROUP     = (NUM_WARPS_M_PER_THREADGROUP * NUM_WARPS_N_PER_THREADGROUP * WARP_SIZE);
 
 // Number of threads in each direction, within a threadgroup.
-const int NUM_THREADS_M_PER_THREADGROUP = (NUM_WARPS_M_PER_THREADGROUP * 8);
-const int NUM_THREADS_N_PER_THREADGROUP = (NUM_WARPS_N_PER_THREADGROUP * 4);
+const uint NUM_THREADS_M_PER_THREADGROUP = (NUM_WARPS_M_PER_THREADGROUP * 8);
+const uint NUM_THREADS_N_PER_THREADGROUP = (NUM_WARPS_N_PER_THREADGROUP * 4);
 
-const int NUM_THREADS_IN_WARP_M = 8;
-const int NUM_THREADS_IN_WARP_N = 4;
+const uint NUM_THREADS_IN_WARP_M = 8;
+const uint NUM_THREADS_IN_WARP_N = 4;
 
 // We can calculate how many threads there are in each direction
 // of a threadgroup by using the warp count calculated for a
@@ -97,7 +97,8 @@ shared struct
 
   // These arrays in shared memory will contain the tiles corresponding to the
   // tile computation. These arrays will be used to accumulate output_tile.
-  float a_tile[BLOCK_ITEMS_M][BLOCK_ITEMS_K]; // Contains a tile loaded from
+  //float a_tile[BLOCK_ITEMS_M][BLOCK_ITEMS_K]; // Contains a tile loaded from
+  float a_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_M];
                                                // matrix A (M x K).
   float b_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_N]; // Contains a tile loaded from
                                                // matrix B (K x N).
@@ -105,11 +106,11 @@ shared struct
 
 #define collapse_2d(x, y, row_len) ((x) + (y) * (row_len))
 
-void copy_mat4_to_global_output(in mat4 m, int n_offset, int m_offset)
+void copy_mat4_to_global_output(in mat4 m, uint n_offset, uint m_offset)
 {
-  for (int y = 0; y < 4; ++y)
+  for (uint y = 0; y < 4; ++y)
   {
-    for (int x = 0; x < 4; ++x)
+    for (uint x = 0; x < 4; ++x)
     {
       u_mat_out.data[collapse_2d(n_offset + x, m_offset + y, SHAPE_N)] = m[x][y];
     }
@@ -122,69 +123,89 @@ void copy_mat4_to_global_output(in mat4 m, int n_offset, int m_offset)
 void main()
 {
   // The start coordinate of the output data
-  int m_start = int(gl_WorkGroupID.y) * BLOCK_ITEMS_M;
-  int n_start = int(gl_WorkGroupID.x) * BLOCK_ITEMS_N;
+  uint m_start = gl_WorkGroupID.y * BLOCK_ITEMS_M;
+  uint n_start = gl_WorkGroupID.x * BLOCK_ITEMS_N;
 
   // Local start we multiply the local invocation id by 4 because each
   // thread is responsible for 4 floats in each direction.
-  int local_idx_start_x   = int(gl_LocalInvocationID.x) * 4;
-  int local_idx_start_y   = int(gl_LocalInvocationID.y) * 4;
+  uint local_idx_start_x   = gl_LocalInvocationID.x * 4;
+  uint local_idx_start_y   = gl_LocalInvocationID.y * 4;
 
   // Get the x and y coordinate of the thread in its warp.
-  int warp_local_thread_n = int(gl_LocalInvocationID.x) % 4;
-  int warp_local_thread_m = int(gl_LocalInvocationID.y) % 8;
+  uint warp_local_thread_n = gl_LocalInvocationID.x % 4;
+  uint warp_local_thread_m = gl_LocalInvocationID.y % 8;
 
   // The number of floats operated on by the warp in each direction.
-  int num_floats_n = NUM_THREADS_IN_WARP_N * 4;
-  int num_floats_m = NUM_THREADS_IN_WARP_M * 4;
+  uint num_floats_n = NUM_THREADS_IN_WARP_N * 4;
+  uint num_floats_m = NUM_THREADS_IN_WARP_M * 4;
 
   // The float offset of the first that the entire warp will operate on in the BLOCK ITEMS.
-  int float_offset_m = warp_local_thread_m * 4 + num_floats_m * (int(gl_LocalInvocationID.y)/8);
-  int float_offset_n = warp_local_thread_n * 4 + num_floats_n * (int(gl_LocalInvocationID.x)/4);
+  uint float_offset_m = warp_local_thread_m * 4 + num_floats_m * (gl_LocalInvocationID.y/8);
+  uint float_offset_n = warp_local_thread_n * 4 + num_floats_n * (gl_LocalInvocationID.x/4);
 
   mat4 res_a0b0 = mat4(0.0);
 
-  for (int k_i = 0; k_i < BLOCK_COUNT_K; ++k_i)
+  for (uint k_i = 0; k_i < BLOCK_COUNT_K; ++k_i)
   {
-    int k_start = k_i * BLOCK_ITEMS_K;
+    uint k_start = k_i * BLOCK_ITEMS_K;
 
-    // Copying into b_tile
-    for (int y = int(gl_LocalInvocationID.y); y < BLOCK_ITEMS_K; y += NUM_THREADS_M_PER_THREADGROUP)
+    // Copying uinto b_tile
+    for (uint y = gl_LocalInvocationID.y; y < BLOCK_ITEMS_K; y += NUM_THREADS_M_PER_THREADGROUP)
     {
-      int tmp_y_off = local_idx_start_x + n_start + (y+k_start)*SHAPE_N;
-#if 0
-      sm.b_tile[y][local_idx_start_x + 0] = u_mat_b.data[collapse_2d(local_idx_start_x + 0 + n_start, y + k_start, SHAPE_N)];
-      sm.b_tile[y][local_idx_start_x + 1] = u_mat_b.data[collapse_2d(local_idx_start_x + 1 + n_start, y + k_start, SHAPE_N)];
-      sm.b_tile[y][local_idx_start_x + 2] = u_mat_b.data[collapse_2d(local_idx_start_x + 2 + n_start, y + k_start, SHAPE_N)];
-      sm.b_tile[y][local_idx_start_x + 3] = u_mat_b.data[collapse_2d(local_idx_start_x + 3 + n_start, y + k_start, SHAPE_N)];
-#endif
+      uint tmp_y_off = local_idx_start_x + n_start + (y+k_start)*SHAPE_N;
       sm.b_tile[y][local_idx_start_x + 0] = u_mat_b.data[0 + tmp_y_off];
       sm.b_tile[y][local_idx_start_x + 1] = u_mat_b.data[1 + tmp_y_off];
       sm.b_tile[y][local_idx_start_x + 2] = u_mat_b.data[2 + tmp_y_off];
       sm.b_tile[y][local_idx_start_x + 3] = u_mat_b.data[3 + tmp_y_off];
     }
 
-    // Copying into a_tile - column major
-    for (int x = int(gl_LocalInvocationID.x); x < BLOCK_ITEMS_K; x += NUM_THREADS_N_PER_THREADGROUP)
-    {
-      int tmp_x = (x+k_start) + (local_idx_start_y + m_start) * SHAPE_K;
-      sm.a_tile[local_idx_start_y + 0][x] = u_mat_a.data[tmp_x + SHAPE_K*0];
-      sm.a_tile[local_idx_start_y + 1][x] = u_mat_a.data[tmp_x + SHAPE_K*1];
-      sm.a_tile[local_idx_start_y + 2][x] = u_mat_a.data[tmp_x + SHAPE_K*2];
-      sm.a_tile[local_idx_start_y + 3][x] = u_mat_a.data[tmp_x + SHAPE_K*3];
+#if 0
+    { // Test row major copy
+      uint linear_local_inv_id = gl_LocalInvocationID.x + gl_LocalInvocationID.y * NUM_THREADS_N_PER_THREADGROUP;
+
+      const uint num_threads = NUM_THREADS_M_PER_THREADGROUP * NUM_THREADS_N_PER_THREADGROUP;
+      const uint height_vec4_array = BLOCK_ITEMS_M;
+      const uint width_vec4_array = BLOCK_ITEMS_K/4;
+      const uint vec4_count = height_vec4_array * width_vec4_array;
+
+      for (uint i = linear_local_inv_id; i < vec4_count; i += num_threads)
+      {
+        uint a_tile_idx_y = i/width_vec4_array;
+        uint a_tile_idx_x = 4*(i % width_vec4_array);
+
+        uint a_idx = k_start+4*(i % width_vec4_array) + (m_start+i/width_vec4_array)*SHAPE_K;
+
+        sm.a_tile[a_tile_idx_y][a_tile_idx_x + 0] = u_mat_b.data[0 + a_idx];
+        sm.a_tile[a_tile_idx_y][a_tile_idx_x + 1] = u_mat_b.data[1 + a_idx];
+        sm.a_tile[a_tile_idx_y][a_tile_idx_x + 2] = u_mat_b.data[2 + a_idx];
+        sm.a_tile[a_tile_idx_y][a_tile_idx_x + 3] = u_mat_b.data[3 + a_idx];
+      }
     }
+#endif
+
+#if 1
+    // Copying uinto a_tile - column major
+    for (uint x = gl_LocalInvocationID.x; x < BLOCK_ITEMS_K; x += NUM_THREADS_N_PER_THREADGROUP)
+    {
+      uint tmp_x = (x+k_start)*SHAPE_M + (local_idx_start_y + m_start);
+      sm.a_tile[x][local_idx_start_y + 0] = u_mat_a.data[tmp_x + 0];
+      sm.a_tile[x][local_idx_start_y + 1] = u_mat_a.data[tmp_x + 1];
+      sm.a_tile[x][local_idx_start_y + 2] = u_mat_a.data[tmp_x + 2];
+      sm.a_tile[x][local_idx_start_y + 3] = u_mat_a.data[tmp_x + 3];
+    }
+#endif
 
     barrier();
 
-    for (int item = 0; item < BLOCK_ITEMS_K; ++item)
+    for (uint item = 0; item < BLOCK_ITEMS_K; ++item)
     {
       // Top left corner
-      int float_offset_k = item;
+      uint float_offset_k = item;
 
-      vec4 a0 = vec4(sm.a_tile[float_offset_m + 0][float_offset_k],
-                     sm.a_tile[float_offset_m + 1][float_offset_k],
-                     sm.a_tile[float_offset_m + 2][float_offset_k],
-                     sm.a_tile[float_offset_m + 3][float_offset_k]);
+      vec4 a0 = vec4(sm.a_tile[float_offset_k][float_offset_m + 0],
+                     sm.a_tile[float_offset_k][float_offset_m + 1],
+                     sm.a_tile[float_offset_k][float_offset_m + 2],
+                     sm.a_tile[float_offset_k][float_offset_m + 3]);
 
       vec4 b0 = vec4(sm.b_tile[float_offset_k][float_offset_n + 0],
                      sm.b_tile[float_offset_k][float_offset_n + 1],

@@ -97,9 +97,11 @@ shared struct
 
   // These arrays in shared memory will contain the tiles corresponding to the
   // tile computation. These arrays will be used to accumulate output_tile.
-  float a_tile[BLOCK_ITEMS_M][BLOCK_ITEMS_K]; // Contains a tile loaded from
+  // float a_tile[BLOCK_ITEMS_M][BLOCK_ITEMS_K]; // Contains a tile loaded from
+  float a_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_M];
                                                // matrix A (M x K).
-  float b_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_N]; // Contains a tile loaded from
+  // float b_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_N]; // Contains a tile loaded from
+  float b_tile[BLOCK_ITEMS_N][BLOCK_ITEMS_K];
                                                // matrix B (K x N).
 } sm;
 
@@ -178,9 +180,9 @@ void main()
     // Copying into a_tile - column major
     for (int x = int(gl_LocalInvocationID.x); x < BLOCK_ITEMS_K; x += NUM_THREADS_N_PER_THREADGROUP)
     {
-      int tmp_x = (x+k_start) + (local_idx_start_y + m_start) * SHAPE_K;
-      sm.a_tile[local_idx_start_y + 0][x] = u_mat_a.data[tmp_x + SHAPE_K*0];
-      sm.a_tile[local_idx_start_y + 1][x] = u_mat_a.data[tmp_x + SHAPE_K*1];
+      int tmp_x = (x+k_start)*SHAPE_M + (local_idx_start_y + m_start);
+      sm.a_tile[x][local_idx_start_y + 0] = u_mat_a.data[tmp_x + 0];
+      sm.a_tile[x][local_idx_start_y + 1] = u_mat_a.data[tmp_x + 1];
 
       // sm.a_tile[local_idx_start_y + 2][x] = u_mat_a.data[tmp_x + SHAPE_K*2];
       // sm.a_tile[local_idx_start_y + 3][x] = u_mat_a.data[tmp_x + SHAPE_K*3];
@@ -193,8 +195,8 @@ void main()
       // Top left corner
       int float_offset_k = item;
 
-      vec2 a0 = vec2(sm.a_tile[float_offset_m + 0][float_offset_k],
-                     sm.a_tile[float_offset_m + 1][float_offset_k]);
+      vec2 a0 = vec2(sm.a_tile[float_offset_k][float_offset_m + 0],
+                     sm.a_tile[float_offset_k][float_offset_m + 1]);
 
       vec2 b0 = vec2(sm.b_tile[float_offset_k][float_offset_n + 0],
                      sm.b_tile[float_offset_k][float_offset_n + 1]);

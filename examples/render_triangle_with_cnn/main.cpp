@@ -13,7 +13,7 @@ const int SHAPE_K      = (32*3);
 
 const int BLOCK_ITEMS_M = (64);
 const int BLOCK_ITEMS_N = (32);
-const int BLOCK_ITEMS_K = (4);
+const int BLOCK_ITEMS_K = (8);
 
 // These are things which are derived from user defined values.
 // We round up the block items constants.
@@ -68,7 +68,7 @@ int main(int argc, char **argv)
     graph.placeholder_job()
   };
 
-  nz::compute_kernel kernel = graph.register_compute_kernel("kernel_matmul_8x_threads");
+  nz::compute_kernel kernel = graph.register_compute_kernel("kernel_matmul_4x_threads");
   nz::gpu_buffer_ref mat_a = graph.register_buffer(
     { .size = SHAPE_M * SHAPE_K * sizeof(float), .host_visible = true, .type = nz::binding::type::storage_buffer });
   nz::gpu_buffer_ref mat_b = graph.register_buffer(

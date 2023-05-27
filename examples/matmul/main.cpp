@@ -15,7 +15,7 @@
 
 #define BLOCK_ITEMS_M (64)
 #define BLOCK_ITEMS_N (32)
-#define BLOCK_ITEMS_K (4)
+#define BLOCK_ITEMS_K (8)
 
 // These are things which are derived from user defined values.
 // We round up the block items constants.
@@ -87,7 +87,7 @@ void test_output(nz::render_graph &graph, graph_state &state)
       float output_from_cpu = 0.0f;
       for (int k = 0; k < SHAPE_K; ++k)
       {
-        output_from_cpu += a_data[k + y * SHAPE_K] * b_data[x + k * SHAPE_N];
+        output_from_cpu += a_data[k * SHAPE_M + y] * b_data[x + k * SHAPE_N];
       }
 
       if (fabs(output_from_cpu - output_from_gpu) > 0.01f)
@@ -105,7 +105,7 @@ int main(int argc, char **argv)
 
   graph_state state;
 
-  state.kernel = graph.register_compute_kernel("kernel_matmul_8x_threads");
+  state.kernel = graph.register_compute_kernel("kernel_matmul_4x_threads");
   state.a = graph.register_buffer(
     { .size = SHAPE_M * SHAPE_K * sizeof(float), .host_visible = true, .type = nz::binding::type::storage_buffer });
   state.b = graph.register_buffer(
