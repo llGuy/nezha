@@ -117,6 +117,8 @@ void copy_mat4_to_global_output(in mat4 m, uint n_offset, uint m_offset)
   }
 }
 
+const int NUM_LOADS_PER_THREAD_ITER = 4;
+
 // Here, we need to loop through each tile in the A and B matrices which correspond
 // to the output tile we are trying to calculate right now in this threadgroup.
 // The amount of times we need to perform the loop is BLOCK_COUNT_K.
@@ -159,31 +161,6 @@ void main()
       sm.b_tile[y][local_idx_start_x + 3] = u_mat_b.data[3 + tmp_y_off];
     }
 
-#if 0
-    { // Test row major copy
-      uint linear_local_inv_id = gl_LocalInvocationID.x + gl_LocalInvocationID.y * NUM_THREADS_N_PER_THREADGROUP;
-
-      const uint num_threads = NUM_THREADS_M_PER_THREADGROUP * NUM_THREADS_N_PER_THREADGROUP;
-      const uint height_vec4_array = BLOCK_ITEMS_M;
-      const uint width_vec4_array = BLOCK_ITEMS_K/4;
-      const uint vec4_count = height_vec4_array * width_vec4_array;
-
-      for (uint i = linear_local_inv_id; i < vec4_count; i += num_threads)
-      {
-        uint a_tile_idx_y = i/width_vec4_array;
-        uint a_tile_idx_x = 4*(i % width_vec4_array);
-
-        uint a_idx = k_start+4*(i % width_vec4_array) + (m_start+i/width_vec4_array)*SHAPE_K;
-
-        sm.a_tile[a_tile_idx_y][a_tile_idx_x + 0] = u_mat_b.data[0 + a_idx];
-        sm.a_tile[a_tile_idx_y][a_tile_idx_x + 1] = u_mat_b.data[1 + a_idx];
-        sm.a_tile[a_tile_idx_y][a_tile_idx_x + 2] = u_mat_b.data[2 + a_idx];
-        sm.a_tile[a_tile_idx_y][a_tile_idx_x + 3] = u_mat_b.data[3 + a_idx];
-      }
-    }
-#endif
-
-#if 1
     // Copying uinto a_tile - column major
     for (uint x = gl_LocalInvocationID.x; x < BLOCK_ITEMS_K; x += NUM_THREADS_N_PER_THREADGROUP)
     {
@@ -193,7 +170,6 @@ void main()
       sm.a_tile[x][local_idx_start_y + 2] = u_mat_a.data[tmp_x + 2];
       sm.a_tile[x][local_idx_start_y + 3] = u_mat_a.data[tmp_x + 3];
     }
-#endif
 
     barrier();
 

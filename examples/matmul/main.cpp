@@ -134,7 +134,9 @@ int main(int argc, char **argv)
   nz::log_info("Time %f", nz::time_difference(end, start));
 
   // show_output(graph, state);
+  nz::log_info("Verifying matrix multiplication result...");
   test_output(graph, state);
+  nz::log_info("Passed matrix multiplication!");
 
   return 0;
 }
