@@ -3,18 +3,18 @@
 #include <nezha/gpu_context.hpp>
 
 
-#if 0
+#if 1
 #define SHAPE_M       (640*640*3)
 #define SHAPE_N       (32)
 #define SHAPE_K       (32*3)
+#else
+#define SHAPE_M       (128*128)
+#define SHAPE_N       (128*128)
+#define SHAPE_K       (128*128)
 #endif
 
-#define SHAPE_M       (640*640*3)
-#define SHAPE_N       (32)
-#define SHAPE_K       (32*3)
-
 #define BLOCK_ITEMS_M (64)
-#define BLOCK_ITEMS_N (32)
+#define BLOCK_ITEMS_N (64)
 #define BLOCK_ITEMS_K (8)
 
 // These are things which are derived from user defined values.
@@ -36,7 +36,7 @@ void dump_matrix(float *data, uint32_t h, uint32_t w)
   for (int y = 0; y < h; ++y)
   {
     for (int x = 0; x < w; ++x)
-      printf("%d ", (int)data[x+y*w]);
+      printf("%d", (int)data[x+y*w]);
 
     printf("\n");
   }
@@ -44,8 +44,13 @@ void dump_matrix(float *data, uint32_t h, uint32_t w)
   printf("\n");
 }
 
+void initialize_identity_test(nz::render_graph &graph, graph_state &state)
+{
+}
+
 void initialize_matrices(nz::render_graph &graph, graph_state &state)
 {
+#if 1
   nz::memory_mapping map_a = graph.get_buffer(state.a).map();
   float *data = (float *)map_a.data();
   for (int i = 0; i < SHAPE_M * SHAPE_K; ++i)
@@ -56,6 +61,20 @@ void initialize_matrices(nz::render_graph &graph, graph_state &state)
 
   for (int i = 0; i < SHAPE_K * SHAPE_N; ++i)
     data[i] = (float)(rand() % 1000);
+#else
+  nz::memory_mapping map_a = graph.get_buffer(state.a).map();
+  float *data = (float *)map_a.data();
+  for (int i = 0; i < SHAPE_M * SHAPE_K; ++i)
+    data[i] = (float)(i%10);
+
+  // dump_matrix(data, SHAPE_M, SHAPE_K);
+
+  nz::memory_mapping map_b = graph.get_buffer(state.b).map();
+  data = (float *)map_b.data();
+
+  for (int i = 0; i < SHAPE_K * SHAPE_N; ++i)
+    data[i] = (float)(i%20);
+#endif
 }
 
 void show_output(nz::render_graph &graph, graph_state &state)
@@ -133,8 +152,9 @@ int main(int argc, char **argv)
 
   nz::log_info("Time %f", nz::time_difference(end, start));
 
-  // show_output(graph, state);
   nz::log_info("Verifying matrix multiplication result...");
+  // test_output(graph, state);
+  // show_output(graph, state);
   test_output(graph, state);
   nz::log_info("Passed matrix multiplication!");
 

@@ -1,5 +1,4 @@
 #include <nezha/descriptor_helper.hpp>
-#include "vulkan/vulkan_core.h"
 #define GLFW_INCLUDE_VULKAN
 
 #include <nezha/log.hpp>
@@ -9,6 +8,9 @@
 #include <nezha/gpu_context.hpp>
 
 #include <vector>
+#include <vulkan/vulkan.h>
+
+#include "ml_metal.h"
 
 namespace nz
 {
@@ -38,7 +40,9 @@ static void init_instance_(const gpu_config &config)
     "VK_EXT_debug_report",
 #endif
 
-    "VK_KHR_portability_enumeration"
+#if defined(__APPLE__)
+    "VK_KHR_portability_enumeration",
+#endif
   };
 
   if (config.create_surface)
@@ -67,9 +71,20 @@ static void init_instance_(const gpu_config &config)
   app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
   app_info.apiVersion = VK_API_VERSION_1_1;
 
+  void *pNext = nullptr;
+
+#if defined (__APPLE__)
+  VkExportMetalObjectCreateInfoEXT export_object = {
+    .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECT_CREATE_INFO_EXT,
+    .exportObjectType = VK_EXPORT_METAL_OBJECT_TYPE_METAL_DEVICE_BIT_EXT
+  };
+
+  pNext = &export_object;
+#endif
+
   VkInstanceCreateInfo instance_info = {};
   instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-  instance_info.pNext = nullptr;
+  instance_info.pNext = pNext;
   instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
   instance_info.pApplicationInfo = &app_info;
   instance_info.enabledLayerCount = layers.size();
@@ -208,7 +223,8 @@ static void init_device_(const gpu_config &config, surface_data *surf)
     VK_EXT_DEBUG_MARKER_EXTENSION_NAME,
 #if defined (__APPLE__)
     "VK_KHR_portability_subset",
-    "VK_EXT_shader_viewport_index_layer"
+    "VK_EXT_shader_viewport_index_layer",
+    VK_EXT_METAL_OBJECTS_EXTENSION_NAME
 #endif
   };
 
@@ -312,10 +328,22 @@ static void init_device_(const gpu_config &config, surface_data *surf)
     unique_family_infos[i] = queue_info;
   }
 
+  void *pNext = nullptr;
+
+#if defined (__APPLE__)
+  VkExportMetalObjectCreateInfoEXT export_metal_obj = {
+    .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECT_CREATE_INFO_EXT,
+    .exportObjectType = VK_EXPORT_METAL_OBJECT_TYPE_METAL_DEVICE_BIT_EXT
+  };
+
+  pNext = &export_metal_obj;
+#endif
+
   VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_feature = 
   {
     .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
     .dynamicRendering = VK_TRUE,
+    .pNext = nullptr
   };
 
   VkDeviceCreateInfo device_info = {};
@@ -331,6 +359,8 @@ static void init_device_(const gpu_config &config, surface_data *surf)
   // device_info.pEnabledFeatures = &requiredFeatures.features;
 
   VK_CHECK(vkCreateDevice(gctx->gpu, &device_info, nullptr, &gctx->device));
+
+  // test(gctx->gpu);
 
   vkGetDeviceQueue(
     gctx->device, gctx->graphics_family, 0, &gctx->graphics_queue);
@@ -555,6 +585,10 @@ surface init_gpu_context(const gpu_config &config)
   init_command_pool_();
   init_descriptor_pool_();
   init_descriptor_layout_helper_();
+
+  //test(gctx->gpu);
+
+  ml_metal_test();
 
   return surface(surf);
 }

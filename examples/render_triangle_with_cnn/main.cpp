@@ -12,7 +12,7 @@ const int SHAPE_N      = (32);
 const int SHAPE_K      = (32*3);
 
 const int BLOCK_ITEMS_M = (64);
-const int BLOCK_ITEMS_N = (32);
+const int BLOCK_ITEMS_N = (64);
 const int BLOCK_ITEMS_K = (8);
 // These are things which are derived from user defined values.
 // We round up the block items constants.

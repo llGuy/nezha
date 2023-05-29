@@ -16,11 +16,15 @@
 //
 // vkCmdDispatch(BLOCK_COUNT_N, BLOCK_COUNT_M, 1);
 
-
+#if 1
 const uint SHAPE_M     = (640*640*3);
 const uint SHAPE_N     = (32);
 const uint SHAPE_K     = (32*3);
-
+#else
+const uint SHAPE_M     = (128*128);
+const uint SHAPE_N     = (128*128);
+const uint SHAPE_K     = (128*128);
+#endif
 
 const uint BLOCK_ITEMS_M = (64);
 const uint BLOCK_ITEMS_N = (32);
@@ -74,18 +78,18 @@ layout (local_size_x = NUM_THREADS_N_PER_THREADGROUP,
 // size: M * K stored in row-major order.
 layout (set = 0, binding = 0) buffer in_mat_a 
 {
-  float data[]; 
+  vec4 data[]; 
 } u_mat_a;
 
 // size: K * N stored in row-major order.
 layout (set = 1, binding = 0) buffer in_mat_b 
 {
-	float data[]; 
+	vec4 data[]; 
 } u_mat_b;
 
 layout (set = 2, binding = 0) buffer out_mat
 {
-	float data[]; 
+	vec4 data[]; 
 } u_mat_out;
 
 // We have calculated how many floats from the inputs we need for the
@@ -93,31 +97,30 @@ layout (set = 2, binding = 0) buffer out_mat
 shared struct 
 {
   // This will contain the output of the tile matrix multiply.
-  float output_tile[BLOCK_ITEMS_M][BLOCK_ITEMS_N];
+  vec4 output_tile[BLOCK_ITEMS_M][BLOCK_ITEMS_N/4];
 
   // These arrays in shared memory will contain the tiles corresponding to the
   // tile computation. These arrays will be used to accumulate output_tile.
   //float a_tile[BLOCK_ITEMS_M][BLOCK_ITEMS_K]; // Contains a tile loaded from
-  float a_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_M];
+  vec4 a_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_M/4];
                                                // matrix A (M x K).
-  float b_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_N]; // Contains a tile loaded from
+  vec4 b_tile[BLOCK_ITEMS_K][BLOCK_ITEMS_N/4]; // Contains a tile loaded from
                                                // matrix B (K x N).
 } sm;
 
 #define collapse_2d(x, y, row_len) ((x) + (y) * (row_len))
 
-void copy_mat4_to_global_output(in mat4 m, uint n_offset, uint m_offset)
+const int NUM_LOADS_PER_THREAD_ITER = 4;
+
+void copy_mat4_to_global_output(mat4 m, uint n_vec4_offset, uint m_float_offset)
 {
+  m = transpose(m);
+
   for (uint y = 0; y < 4; ++y)
   {
-    for (uint x = 0; x < 4; ++x)
-    {
-      u_mat_out.data[collapse_2d(n_offset + x, m_offset + y, SHAPE_N)] = m[x][y];
-    }
+    u_mat_out.data[collapse_2d(n_vec4_offset, m_float_offset + y, SHAPE_N/4)] = m[y];
   }
 }
-
-const int NUM_LOADS_PER_THREAD_ITER = 4;
 
 // Here, we need to loop through each tile in the A and B matrices which correspond
 // to the output tile we are trying to calculate right now in this threadgroup.
@@ -126,24 +129,36 @@ void main()
 {
   // The start coordinate of the output data
   uint m_start = gl_WorkGroupID.y * BLOCK_ITEMS_M;
+  uint m_vec4_start = gl_WorkGroupID.y * (BLOCK_ITEMS_M/4);
+
   uint n_start = gl_WorkGroupID.x * BLOCK_ITEMS_N;
+  uint n_vec4_start = gl_WorkGroupID.x * (BLOCK_ITEMS_N/4);
 
   // Local start we multiply the local invocation id by 4 because each
   // thread is responsible for 4 floats in each direction.
-  uint local_idx_start_x   = gl_LocalInvocationID.x * 4;
-  uint local_idx_start_y   = gl_LocalInvocationID.y * 4;
+  uint local_idx_start_x_vec4 = gl_LocalInvocationID.x;
+  uint local_idx_start_x = gl_LocalInvocationID.x * 4;
+
+  uint local_idx_start_y_vec4 = gl_LocalInvocationID.y;
+  uint local_idx_start_y = gl_LocalInvocationID.y * 4;
 
   // Get the x and y coordinate of the thread in its warp.
   uint warp_local_thread_n = gl_LocalInvocationID.x % 4;
   uint warp_local_thread_m = gl_LocalInvocationID.y % 8;
 
   // The number of floats operated on by the warp in each direction.
+  uint num_vec4_n = NUM_THREADS_IN_WARP_N;
   uint num_floats_n = NUM_THREADS_IN_WARP_N * 4;
+
+  uint num_vec4_m = NUM_THREADS_IN_WARP_M;
   uint num_floats_m = NUM_THREADS_IN_WARP_M * 4;
 
   // The float offset of the first that the entire warp will operate on in the BLOCK ITEMS.
-  uint float_offset_m = warp_local_thread_m * 4 + num_floats_m * (gl_LocalInvocationID.y/8);
-  uint float_offset_n = warp_local_thread_n * 4 + num_floats_n * (gl_LocalInvocationID.x/4);
+  uint vec4_offset_m = warp_local_thread_m + num_vec4_m * (gl_LocalInvocationID.y/8);
+  uint float_offset_m = vec4_offset_m * 4;
+
+  uint vec4_offset_n = warp_local_thread_n + num_vec4_n * (gl_LocalInvocationID.x/4);
+  uint float_offset_n = vec4_offset_n * 4;
 
   mat4 res_a0b0 = mat4(0.0);
 
@@ -154,21 +169,17 @@ void main()
     // Copying uinto b_tile
     for (uint y = gl_LocalInvocationID.y; y < BLOCK_ITEMS_K; y += NUM_THREADS_M_PER_THREADGROUP)
     {
-      uint tmp_y_off = local_idx_start_x + n_start + (y+k_start)*SHAPE_N;
-      sm.b_tile[y][local_idx_start_x + 0] = u_mat_b.data[0 + tmp_y_off];
-      sm.b_tile[y][local_idx_start_x + 1] = u_mat_b.data[1 + tmp_y_off];
-      sm.b_tile[y][local_idx_start_x + 2] = u_mat_b.data[2 + tmp_y_off];
-      sm.b_tile[y][local_idx_start_x + 3] = u_mat_b.data[3 + tmp_y_off];
+      // uint y = gl_LocalInvocationID.y;
+      uint tmp_y_off = local_idx_start_x_vec4 + n_vec4_start + (y+k_start)*(SHAPE_N/4);
+      sm.b_tile[y][local_idx_start_x_vec4] = u_mat_b.data[tmp_y_off];
     }
 
     // Copying uinto a_tile - column major
     for (uint x = gl_LocalInvocationID.x; x < BLOCK_ITEMS_K; x += NUM_THREADS_N_PER_THREADGROUP)
     {
-      uint tmp_x = (x+k_start)*SHAPE_M + (local_idx_start_y + m_start);
-      sm.a_tile[x][local_idx_start_y + 0] = u_mat_a.data[tmp_x + 0];
-      sm.a_tile[x][local_idx_start_y + 1] = u_mat_a.data[tmp_x + 1];
-      sm.a_tile[x][local_idx_start_y + 2] = u_mat_a.data[tmp_x + 2];
-      sm.a_tile[x][local_idx_start_y + 3] = u_mat_a.data[tmp_x + 3];
+      // uint x = gl_LocalInvocationID.x;
+      uint tmp_x = (x+k_start)*(SHAPE_M/4) + (local_idx_start_y_vec4 + m_vec4_start);
+      sm.a_tile[x][local_idx_start_y_vec4] = u_mat_a.data[tmp_x];
     }
 
     barrier();
@@ -178,21 +189,12 @@ void main()
       // Top left corner
       uint float_offset_k = item;
 
-      vec4 a0 = vec4(sm.a_tile[float_offset_k][float_offset_m + 0],
-                     sm.a_tile[float_offset_k][float_offset_m + 1],
-                     sm.a_tile[float_offset_k][float_offset_m + 2],
-                     sm.a_tile[float_offset_k][float_offset_m + 3]);
-
-      vec4 b0 = vec4(sm.b_tile[float_offset_k][float_offset_n + 0],
-                     sm.b_tile[float_offset_k][float_offset_n + 1],
-                     sm.b_tile[float_offset_k][float_offset_n + 2],
-                     sm.b_tile[float_offset_k][float_offset_n + 3]);
-
-      res_a0b0 += outerProduct(a0, b0);
+      res_a0b0 += outerProduct(sm.a_tile[float_offset_k][vec4_offset_m],
+                               sm.b_tile[float_offset_k][vec4_offset_n]);
     }
 
     barrier();
   }
 
-  copy_mat4_to_global_output(res_a0b0, n_start + float_offset_n, m_start + float_offset_m);
+  copy_mat4_to_global_output(res_a0b0, n_vec4_start + vec4_offset_n, m_start + float_offset_m);
 }

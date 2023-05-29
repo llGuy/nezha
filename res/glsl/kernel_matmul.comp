@@ -7,11 +7,17 @@
 
 #include "nezha.glsl"
 
+#if 1
 const uint SHAPE_M     = (640*640*3);
 const uint SHAPE_N     = (32);
 const uint SHAPE_K     = (32*3);
+#else
+const uint SHAPE_M     = (128*128);
+const uint SHAPE_N     = (128*128);
+const uint SHAPE_K     = (128*128);
+#endif
 
-const uint BLOCK_ITEMS_M = (128);
+const uint BLOCK_ITEMS_M = (64);
 const uint BLOCK_ITEMS_N = (32);
 const uint BLOCK_ITEMS_K = (8); // 4 IS OPTIMAL
 

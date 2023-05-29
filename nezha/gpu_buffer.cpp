@@ -1,3 +1,5 @@
+#include "ml_metal.h"
+
 #include <nezha/graph.hpp>
 #include <nezha/gpu_buffer.hpp>
 #include <nezha/gpu_context.hpp>
@@ -74,9 +76,21 @@ gpu_buffer &gpu_buffer::configure(const buffer_info &info)
 
 gpu_buffer &gpu_buffer::alloc() 
 {
+  void *pNext = nullptr;
+
+#if 0
+#if defined (__APPLE__)
+  VkExportMetalObjectCreateInfoEXT export_metal_obj = {
+    .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECT_CREATE_INFO_EXT,
+    .exportObjectType = VK_EXPORT_METAL_OBJECT_TYPE_METAL_BUFFER_BIT_EXT
+  };
+#endif
+#endif
+
   VkBufferCreateInfo buffer_create_info = 
   {
     .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+    .pNext = pNext,
     .flags = 0,
     .size = size_,
     .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
