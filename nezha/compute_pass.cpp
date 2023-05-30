@@ -22,6 +22,13 @@ compute_pass &compute_pass::set_kernel(compute_kernel kernel)
   return *this;
 }
 
+compute_pass &compute_pass::set_kernel(ml_kernel kernel)
+{
+  kernel_ = (compute_kernel)invalid_graph_ref;
+  ml_kernel_ = kernel;
+  return *this;
+}
+
 compute_pass &compute_pass::add_sampled_image(gpu_image_ref ref) 
 {
   uint32_t binding_id = bindings_->size();
@@ -134,59 +141,66 @@ void compute_pass::reset_()
 
 void compute_pass::create_(compute_kernel_state &state)
 {
-  VkPushConstantRange push_constant_range = {};
-  push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-  push_constant_range.offset = 0;
-  push_constant_range.size = push_constant_size_;
-
-  // Pipeline layout TODO: Support descriptors with count>1
-  VkDescriptorSetLayout *layouts = stack_alloc(
-    VkDescriptorSetLayout, bindings_->size());
-  for (u32 i = 0; i < bindings_->size(); ++i)
-    layouts[i] = get_descriptor_set_layout(
-      (*bindings_)[i].get_descriptor_type(), 1);
-
-  VkPipelineLayoutCreateInfo pipeline_layout_info = {};
-  pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipeline_layout_info.setLayoutCount = bindings_->size();
-  pipeline_layout_info.pSetLayouts = layouts;
-
-  if (push_constant_size_) 
+  if (state.src)
   {
-    pipeline_layout_info.pushConstantRangeCount = 1;
-    pipeline_layout_info.pPushConstantRanges = &push_constant_range;
+    VkPushConstantRange push_constant_range = {};
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_constant_range.offset = 0;
+    push_constant_range.size = push_constant_size_;
+
+    // Pipeline layout TODO: Support descriptors with count>1
+    VkDescriptorSetLayout *layouts = stack_alloc(
+        VkDescriptorSetLayout, bindings_->size());
+    for (u32 i = 0; i < bindings_->size(); ++i)
+      layouts[i] = get_descriptor_set_layout(
+          (*bindings_)[i].get_descriptor_type(), 1);
+
+    VkPipelineLayoutCreateInfo pipeline_layout_info = {};
+    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.setLayoutCount = bindings_->size();
+    pipeline_layout_info.pSetLayouts = layouts;
+
+    if (push_constant_size_) 
+    {
+      pipeline_layout_info.pushConstantRangeCount = 1;
+      pipeline_layout_info.pPushConstantRanges = &push_constant_range;
+    }
+
+    VK_CHECK(vkCreatePipelineLayout(
+          gctx->device, &pipeline_layout_info, nullptr, &state.layout));
+
+    // Shader stage
+    heap_array<u8> src_bytes = file(
+        make_shader_src_path(state.src, VK_SHADER_STAGE_COMPUTE_BIT), 
+        file_type_bin | file_type_in).read_binary();
+
+    VkShaderModule shader_module;
+    VkShaderModuleCreateInfo shader_info = {};
+    shader_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    shader_info.codeSize = src_bytes.size();
+    shader_info.pCode = (u32 *)src_bytes.data();
+
+    VK_CHECK(vkCreateShaderModule(
+          gctx->device, &shader_info, NULL, &shader_module));
+
+    VkPipelineShaderStageCreateInfo module_info = {};
+    module_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    module_info.pName = "main";
+    module_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    module_info.module = shader_module;
+
+    VkComputePipelineCreateInfo compute_pipeline_info = {};
+    compute_pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    compute_pipeline_info.stage = module_info;
+    compute_pipeline_info.layout = state.layout;
+
+    VK_CHECK(vkCreateComputePipelines(gctx->device, VK_NULL_HANDLE, 1, 
+          &compute_pipeline_info, nullptr, &state.pipeline));
   }
+  else
+  {
 
-  VK_CHECK(vkCreatePipelineLayout(
-    gctx->device, &pipeline_layout_info, nullptr, &state.layout));
-
-  // Shader stage
-  heap_array<u8> src_bytes = file(
-    make_shader_src_path(state.src, VK_SHADER_STAGE_COMPUTE_BIT), 
-    file_type_bin | file_type_in).read_binary();
-
-  VkShaderModule shader_module;
-  VkShaderModuleCreateInfo shader_info = {};
-  shader_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  shader_info.codeSize = src_bytes.size();
-  shader_info.pCode = (u32 *)src_bytes.data();
-
-  VK_CHECK(vkCreateShaderModule(
-    gctx->device, &shader_info, NULL, &shader_module));
-
-  VkPipelineShaderStageCreateInfo module_info = {};
-  module_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  module_info.pName = "main";
-  module_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  module_info.module = shader_module;
-
-  VkComputePipelineCreateInfo compute_pipeline_info = {};
-  compute_pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-  compute_pipeline_info.stage = module_info;
-  compute_pipeline_info.layout = state.layout;
-
-  VK_CHECK(vkCreateComputePipelines(gctx->device, VK_NULL_HANDLE, 1, 
-    &compute_pipeline_info, nullptr, &state.pipeline));
+  }
 }
 
 // This also needs to issue all synchronization stuff that may be needed

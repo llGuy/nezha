@@ -46,6 +46,7 @@ public:
   gpu_buffer_ref register_buffer(const buffer_info &cfg);
   gpu_image_ref  register_image(const image_info &cfg);
   compute_kernel register_compute_kernel(const char *src);
+  compute_kernel register_compute_kernel(ml_kernel ml, ml_kernel_config cfg);
   void           register_swapchain(const surface &, gpu_image_ref *dst);
 
 

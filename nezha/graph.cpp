@@ -66,6 +66,13 @@ compute_kernel render_graph::register_compute_kernel(const char *src)
   return k;
 }
 
+compute_kernel render_graph::register_compute_kernel(ml_kernel ml, ml_kernel_config cfg)
+{
+  compute_kernel k = kernels_.size();
+  kernels_.push_back({ nullptr, VK_NULL_HANDLE, VK_NULL_HANDLE, ml, nullptr, cfg });
+  return k;
+}
+
 render_pass &render_graph::add_render_pass() 
 {
   recorded_stages_.emplace_back(render_pass(this, recorded_stages_.size()));
@@ -372,9 +379,18 @@ void render_graph::execute_pass_graph_stage_(
     last_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 
     compute_pass &cp = recorded_stages_[stg].get_compute_pass();
+
     compute_kernel_state &cp_state = kernels_[cp.kernel_];
 
-    if (cp_state.pipeline == VK_NULL_HANDLE) 
+    if (cp_state.src == nullptr)
+    {
+      if (cp_state.kernel == nullptr)
+      {
+        // Create the ML kernel
+        cp.create_(cp_state);
+      }
+    }
+    else if (cp_state.pipeline == VK_NULL_HANDLE)
     {
       // Actually initialize the compute pipeline/layout
       // which is stored in the compute_kernel_state of the render graph

@@ -15,6 +15,28 @@ namespace nz
 using compute_kernel = u32;
 
 
+/* For ML, here are kernels that can be used if hardware acceleration permits. */
+enum ml_kernel
+{
+  matrix_multiplication
+};
+
+
+struct acc_kernel;
+
+
+struct ml_kernel_config
+{
+  union
+  {
+    struct
+    {
+      uint32_t result_rows, result_columns, interior_columns;
+    } matrix_multiplication;
+  };
+};
+
+
 /* Internal use. This is used for representing actual compute kernel GPU-side
  * objects - pipelines and such. */
 struct compute_kernel_state
@@ -22,6 +44,10 @@ struct compute_kernel_state
   const char *src;
   VkPipeline pipeline;
   VkPipelineLayout layout;
+
+  ml_kernel ml;
+  acc_kernel *kernel;
+  ml_kernel_config cfg;
 };
 
 
@@ -35,6 +61,7 @@ class compute_pass
 public:
   /* Set the compute kernel to be invoked for this compute pass. */
   compute_pass &set_kernel(compute_kernel kernel);
+  compute_pass &set_kernel(ml_kernel kernel);
 
   /* Send some constant data to the kernel (usually up to 256 bytes). */
   template <typename T>
@@ -63,6 +90,8 @@ public:
 private:
   void reset_();
   void create_(compute_kernel_state &);
+  void create_compute_shader_(compute_kernel_state &);
+  void create_ml_backend_(compute_kernel_state &);
   void issue_commands_(VkCommandBuffer cmdbuf, compute_kernel_state &state);
 
 private:
@@ -70,6 +99,7 @@ private:
   uint32_t push_constant_size_;
 
   compute_kernel kernel_;
+  ml_kernel ml_kernel_;
 
   std::vector<binding> *bindings_;
 

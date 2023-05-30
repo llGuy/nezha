@@ -18,9 +18,15 @@ class render_graph;
  * inferred during compilation of the graph JOB. */
 struct buffer_info 
 {
+  /* Either use this, or the second batch of parameters for ML stuff. */
   u32 size = 0;
   binding::type type = binding::type::max_buffer;
   bool host_visible = false;
+
+  /* For ML. */
+  bool ml_accelerate = false;
+  uint32_t rows;
+  uint32_t columns;
 };
 
 
