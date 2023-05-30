@@ -14,6 +14,9 @@ using gpu_buffer_ref = u32;
 class render_graph;
 
 
+struct acc_matrix_descriptor;
+
+
 /* Configure a buffer witih BUFFER_INFO structure. Need to set SIZE. TYPE can be
  * inferred during compilation of the graph JOB. */
 struct buffer_info 
@@ -113,6 +116,8 @@ private:
 
   VkAccessFlags current_access_;
   VkPipelineStageFlags last_used_;
+
+  acc_matrix_descriptor *acc_desc_;
 
   bool host_visible_;
 

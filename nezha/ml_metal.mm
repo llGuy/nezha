@@ -7,43 +7,6 @@
 
 #import <MetalPerformanceShaders/MetalPerformanceShaders.h>
 
-void ml_metal_test()
-{
-  NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-
-  VkDevice vk_device = nz::gctx->device;
-
-  VkExportMetalDeviceInfoEXT export_device = {
-    .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_DEVICE_INFO_EXT,
-    .mtlDevice = nullptr,
-    .pNext = nullptr
-  };
-
-  VkExportMetalObjectsInfoEXT export_object = {
-    .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECTS_INFO_EXT,
-    .pNext = &export_device
-  };
-
-  vkExportMetalObjectsEXT(vk_device, &export_object);
-
-  uint64_t test_lib = (uint64_t)export_device.mtlDevice.maxBufferLength;
-
-  id<MTLBuffer> buf = [export_device.mtlDevice newBufferWithLength:256*256*sizeof(float) options:MTLResourceStorageModeShared];
-
-  NSLog(@"Hello World%@", [export_device.mtlDevice name]);
-
-  MPSMatrixDescriptor *desc = [MPSMatrixDescriptor matrixDescriptorWithDimensions:256 
-                              columns:256 rowBytes:256*sizeof(float) dataType:MPSDataTypeFloat32];
-
-  MPSMatrix *matrix = [[MPSMatrix alloc] initWithBuffer:buf descriptor:desc];
-
-  MPSMatrixMultiplication *multiplication = [[MPSMatrixMultiplication alloc] initWithDevice:export_device.mtlDevice 
-                                            transposeLeft:false transposeRight:false resultRows:256 resultColumns:256 
-                                            interiorColumns:256 alpha:1 beta:0];
-
-  [pool release];
-}
-
 namespace nz
 {
 
@@ -128,6 +91,43 @@ static id<MTLSharedEvent> get_mtl_shared_event(VkSemaphore sema)
   return export_event.mtlSharedEvent;
 }
 
+static id<MTLBuffer> get_mtl_buffer(VkDeviceMemory mem)
+{
+  VkDevice vk_device = nz::gctx->device;
+
+  VkExportMetalBufferInfoEXT export_buffer = {
+    .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_BUFFER_INFO_EXT,
+    .memory = mem,
+    .mtlBuffer = nullptr,
+    .pNext = nullptr
+  };
+
+  VkExportMetalObjectsInfoEXT export_object = {
+    .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECTS_INFO_EXT,
+    .pNext = &export_buffer
+  };
+
+  vkExportMetalObjectsEXT(vk_device, &export_object);
+
+  return export_buffer.mtlBuffer;
+}
+
+acc_matrix_descriptor *make_acc_matrix_descriptor(VkDeviceMemory mem, uint32_t rows, uint32_t cols)
+{
+  id<MTLBuffer> buf = get_mtl_buffer(mem);
+
+  MPSMatrixDescriptor *desc = [MPSMatrixDescriptor matrixDescriptorWithDimensions:rows 
+                              columns:cols rowBytes:rows*sizeof(float) dataType:MPSDataTypeFloat32];
+
+  MPSMatrix *matrix = [[MPSMatrix alloc] initWithBuffer:buf descriptor:desc];
+
+  acc_matrix_descriptor *acc_desc = (acc_matrix_descriptor *)malloc(sizeof(acc_matrix_descriptor));
+  acc_desc->descriptor = desc;
+  acc_desc->matrix = matrix;
+
+  return acc_desc;
+}
+
 acc_kernel *make_acc_kernel(ml_kernel kernel_type, const ml_kernel_config &cfg)
 {
   acc_kernel *k = (acc_kernel *)malloc(sizeof(acc_kernel));
@@ -159,12 +159,12 @@ void encode_matrix_multiplication(VkSemaphore wait_semaphore, VkSemaphore signal
   id<MTLCommandBuffer> cmdbuf = [cmd_queue commandBuffer];
   cmdbuf.label = @"ML Kernel Command Buffer";
 
-  [cmdbuf encodeWaitForEvent:wait_event value:1];
+  [cmdbuf encodeWaitForEvent:wait_event value:(wait_event.signaledValue+1)];
 
   [kernel->multiplication encodeToCommandBuffer:cmdbuf leftMatrix:a->matrix 
     rightMatrix:b->matrix resultMatrix:result->matrix];
 
-  [cmdbuf encodeSignalEvent:signal_event value:1];
+  [cmdbuf encodeSignalEvent:signal_event value:(signal_event.signaledValue+1)];
 
   [cmdbuf commit];
 }
